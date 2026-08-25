@@ -33,6 +33,62 @@ interface PhotoRow {
 
 const COLOR_BY_TAG: Record<string, string> = { billel: '#E0714B', cerine: '#A8577A' }
 const PHOTO_BUCKET = 'progress-photos'
+const PHOTO_MAX_DIMENSION = 1280
+const PHOTO_QUALITY = 0.75
+
+// Compresse et redimensionne l'image dans le navigateur avant l'envoi, pour économiser l'espace de stockage
+function compressImage(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+      if (width > PHOTO_MAX_DIMENSION || height > PHOTO_MAX_DIMENSION) {
+        if (width > height) {
+          height = Math.round((height * PHOTO_MAX_DIMENSION) / width)
+          width = PHOTO_MAX_DIMENSION
+        } else {
+          width = Math.round((width * PHOTO_MAX_DIMENSION) / height)
+          height = PHOTO_MAX_DIMENSION
+        }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      URL.revokeObjectURL(objectUrl)
+      if (!ctx) {
+        reject(new Error('Contexte canvas indisponible'))
+        return
+      }
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('Échec de la compression'))),
+        'image/jpeg',
+        PHOTO_QUALITY
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error("Impossible de charger l'image"))
+    }
+    img.src = objectUrl
+  })
+}
+
+// 1 photo max par quinzaine : 1er-15 et 16-fin de mois
+function periodKey(date: Date) {
+  const half = date.getDate() <= 15 ? 'A' : 'B'
+  return `${date.getFullYear()}-${date.getMonth()}-${half}`
+}
+
+function nextWindowLabel(date: Date) {
+  if (date.getDate() <= 15) {
+    return `le 16 ${date.toLocaleDateString('fr-FR', { month: 'long' })}`
+  }
+  const next = new Date(date.getFullYear(), date.getMonth() + 1, 1)
+  return `le 1er ${next.toLocaleDateString('fr-FR', { month: 'long' })}`
+}
 
 export default function Weight() {
   const { profile, householdMembers, updateLocalProfile } = useAuth()
@@ -151,22 +207,33 @@ export default function Weight() {
   const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !profile) return
-    setUploadingPhoto(true)
-    const ext = file.name.split('.').pop() || 'jpg'
-    const path = `${profile.household_id}/${profile.id}/${Date.now()}.${ext}`
-    const { error: uploadError } = await supabase.storage.from(PHOTO_BUCKET).upload(path, file, {
-      contentType: file.type
-    })
-    if (!uploadError) {
-      await supabase.from('progress_photos').insert({
-        household_id: profile.household_id,
-        profile_id: profile.id,
-        storage_path: path
-      })
-      await loadPhotos()
+    if (!canTakePhoto) {
+      alert(`Limite de 2 photos par mois atteinte. Prochaine photo possible à partir ${nextWindowLabel(new Date())}.`)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
     }
-    setUploadingPhoto(false)
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    setUploadingPhoto(true)
+    try {
+      const compressed = await compressImage(file)
+      const path = `${profile.household_id}/${profile.id}/${Date.now()}.jpg`
+      const { error: uploadError } = await supabase.storage.from(PHOTO_BUCKET).upload(path, compressed, {
+        contentType: 'image/jpeg'
+      })
+      if (!uploadError) {
+        await supabase.from('progress_photos').insert({
+          household_id: profile.household_id,
+          profile_id: profile.id,
+          storage_path: path
+        })
+        await loadPhotos()
+      }
+    } catch (err) {
+      console.error(err)
+      alert("La compression de la photo a échoué, réessaie.")
+    } finally {
+      setUploadingPhoto(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   const deletePhoto = async (photo: PhotoRow) => {
@@ -179,6 +246,11 @@ export default function Weight() {
     await supabase.from('vital_signs').delete().eq('id', id)
     setVitals((prev) => prev.filter((v) => v.id !== id))
   }
+
+  const myPhotoPeriods = new Set(
+    photos.filter((p) => p.profile_id === profile?.id).map((p) => periodKey(new Date(p.taken_at)))
+  )
+  const canTakePhoto = !myPhotoPeriods.has(periodKey(new Date()))
 
   return (
     <div className="space-y-6">
@@ -335,13 +407,19 @@ export default function Weight() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingPhoto}
-              className="btn-ink"
+              disabled={uploadingPhoto || !canTakePhoto}
+              className="btn-ink disabled:opacity-40 disabled:cursor-not-allowed"
+              title={canTakePhoto ? undefined : `Prochaine photo possible à partir ${nextWindowLabel(new Date())}`}
             >
               {uploadingPhoto ? 'Envoi…' : '📷 Prendre une photo'}
             </button>
           </div>
         </div>
+        {!canTakePhoto && (
+          <p className="text-xs text-muted mb-3">
+            Limite de 2 photos/mois atteinte pour toi (1er–15 et 16–fin de mois). Prochaine photo possible à partir {nextWindowLabel(new Date())}.
+          </p>
+        )}
         {photos.length === 0 ? (
           <p className="text-sm text-muted">Aucune photo pour l'instant — privées, visibles seulement de vous deux.</p>
         ) : (

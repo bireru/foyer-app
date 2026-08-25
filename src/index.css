@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+  }
+  /* Focus clavier toujours visible */
+  :focus-visible {
+    outline: 2px solid theme('colors.billel.DEFAULT');
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-line rounded-card p-4 shadow-soft transition-shadow;
+  }
+  .room-tile {
+    @apply relative rounded-card p-4 border transition-all shadow-soft;
+  }
+  .room-tile--planned {
+    @apply border-dashed border-blueprint text-muted bg-transparent shadow-none;
+  }
+  a.room-tile:hover {
+    @apply shadow-softHover -translate-y-0.5;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center rounded-full px-5 py-2.5 font-display text-sm font-semibold transition-all;
+  }
+  .btn-ink {
+    @apply btn bg-billel text-white hover:bg-billel-light hover:shadow-softHover active:scale-95;
+  }
+  .input {
+    @apply w-full rounded-2xl border border-line bg-surface px-3.5 py-2.5 font-body text-ink placeholder:text-muted/70 focus:border-billel transition-colors;
+  }
+  .tag-billel {
+    @apply bg-billel-bg text-billel border border-billel/30 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+  .tag-cerine {
+    @apply bg-cerine-bg text-cerine border border-cerine/30 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+}

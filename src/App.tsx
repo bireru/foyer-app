@@ -14,6 +14,10 @@ import MealPlan from '@/pages/food/MealPlan'
 import Recipes from '@/pages/food/Recipes'
 import Shopping from '@/pages/food/Shopping'
 import Goals from '@/pages/food/Goals'
+import BudgetHome from '@/pages/budget/BudgetHome'
+import Expenses from '@/pages/budget/Expenses'
+import Savings from '@/pages/budget/Savings'
+import Shared from '@/pages/budget/Shared'
 
 function Gate() {
   const { session, profile, loading } = useAuth()
@@ -49,6 +53,12 @@ function Gate() {
           <Route path="recettes" element={<Recipes />} />
           <Route path="courses" element={<Shopping />} />
           <Route path="objectifs" element={<Goals />} />
+        </Route>
+        <Route path="budget" element={<BudgetHome />}>
+          <Route index element={<Navigate to="depenses" replace />} />
+          <Route path="depenses" element={<Expenses />} />
+          <Route path="epargne" element={<Savings />} />
+          <Route path="commun" element={<Shared />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -8,6 +8,7 @@ import Weight from '@/pages/sport/Weight'
 import Programs from '@/pages/sport/Programs'
 import Timer from '@/pages/sport/Timer'
 import Calendar from '@/pages/sport/Calendar'
+import Progress from '@/pages/sport/Progress'
 
 function Gate() {
   const { session, profile, loading } = useAuth()
@@ -35,6 +36,7 @@ function Gate() {
           <Route path="programmes" element={<Programs />} />
           <Route path="minuteur" element={<Timer />} />
           <Route path="calendrier" element={<Calendar />} />
+          <Route path="progression" element={<Progress />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

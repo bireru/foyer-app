@@ -4,7 +4,8 @@ const TABS = [
   { path: '/sport/poids', label: 'Poids & signes vitaux' },
   { path: '/sport/programmes', label: 'Programmes' },
   { path: '/sport/minuteur', label: 'Minuteur' },
-  { path: '/sport/calendrier', label: 'Calendrier' }
+  { path: '/sport/calendrier', label: 'Calendrier' },
+  { path: '/sport/progression', label: 'Progression' }
 ]
 
 export default function SportHome() {

@@ -170,6 +170,11 @@ export default function Weight() {
     setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
   }
 
+  const deleteVital = async (id: string) => {
+    await supabase.from('vital_signs').delete().eq('id', id)
+    setVitals((prev) => prev.filter((v) => v.id !== id))
+  }
+
   return (
     <div className="space-y-6">
       {/* Objectifs de poids, en grand */}
@@ -208,9 +213,17 @@ export default function Weight() {
                 </div>
               ) : m.weight_goal_kg != null ? (
                 <div>
-                  <p className="font-display font-bold text-5xl" style={{ color }}>
-                    {m.weight_goal_kg} <span className="text-2xl font-normal text-muted">kg</span>
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-muted mb-1">Objectif</p>
+                  <div className="flex items-baseline gap-3 flex-wrap">
+                    <p className="font-display font-bold text-5xl" style={{ color }}>
+                      {m.weight_goal_kg} <span className="text-2xl font-normal text-muted">kg</span>
+                    </p>
+                    {current != null && (
+                      <p className="text-muted text-sm">
+                        actuellement <span className="font-display font-semibold text-ink">{current} kg</span>
+                      </p>
+                    )}
+                  </div>
                   {delta != null && (
                     <p className="text-sm text-muted mt-1">
                       {delta > 0
@@ -368,6 +381,7 @@ export default function Weight() {
                 <th className="py-1 pr-4">Date</th>
                 <th className="py-1 pr-4">Qui</th>
                 <th className="py-1 pr-4">Sommeil</th>
+                <th className="py-1 pr-4"></th>
               </tr>
             </thead>
             <tbody>
@@ -378,6 +392,15 @@ export default function Weight() {
                     {memberName(v.profile_id)}
                   </td>
                   <td className="py-1 pr-4">{v.sleep_hours ?? '—'} h</td>
+                  <td className="py-1 pr-4 text-right">
+                    <button
+                      onClick={() => deleteVital(v.id)}
+                      className="text-billel text-xs"
+                      aria-label={`Supprimer l'entrée du ${v.measured_at.slice(0, 10)}`}
+                    >
+                      Supprimer
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine
 } from 'recharts'
@@ -20,22 +20,32 @@ interface VitalRow {
   diastolic: number | null
   heart_rate: number | null
   sleep_hours: number | null
-  back_pain_level: number | null
   note: string | null
 }
 
+interface PhotoRow {
+  id: string
+  profile_id: string
+  taken_at: string
+  storage_path: string
+  signedUrl?: string
+}
+
 const COLOR_BY_TAG: Record<string, string> = { billel: '#E0714B', cerine: '#A8577A' }
+const PHOTO_BUCKET = 'progress-photos'
 
 export default function Weight() {
   const { profile, householdMembers, refreshHousehold } = useAuth()
   const [weights, setWeights] = useState<WeightRow[]>([])
   const [vitals, setVitals] = useState<VitalRow[]>([])
+  const [photos, setPhotos] = useState<PhotoRow[]>([])
   const [weightInput, setWeightInput] = useState('')
-  const [backPain, setBackPain] = useState('0')
   const [sleepHours, setSleepHours] = useState('')
   const [saving, setSaving] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [editingGoal, setEditingGoal] = useState(false)
   const [goalInput, setGoalInput] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     if (!profile) return
@@ -52,6 +62,24 @@ export default function Weight() {
       .order('measured_at', { ascending: false })
       .limit(30)
     setVitals(v ?? [])
+
+    const { data: p } = await supabase
+      .from('progress_photos')
+      .select('id, profile_id, taken_at, storage_path')
+      .eq('household_id', profile.household_id)
+      .order('taken_at', { ascending: false })
+    if (p && p.length) {
+      const { data: signed } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .createSignedUrls(p.map((row) => row.storage_path), 3600)
+      const urlByPath: Record<string, string> = {}
+      for (const s of signed ?? []) {
+        if (s.signedUrl) urlByPath[s.path ?? ''] = s.signedUrl
+      }
+      setPhotos(p.map((row) => ({ ...row, signedUrl: urlByPath[row.storage_path] })))
+    } else {
+      setPhotos([])
+    }
   }, [profile])
 
   useEffect(() => {
@@ -97,11 +125,9 @@ export default function Weight() {
     await supabase.from('vital_signs').insert({
       household_id: profile.household_id,
       profile_id: profile.id,
-      back_pain_level: parseInt(backPain, 10),
       sleep_hours: sleepHours ? parseFloat(sleepHours) : null
     })
     setWeightInput('')
-    setBackPain('0')
     setSleepHours('')
     setSaving(false)
     load()
@@ -115,6 +141,33 @@ export default function Weight() {
       .eq('id', profile.id)
     setEditingGoal(false)
     await refreshHousehold()
+  }
+
+  const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !profile) return
+    setUploadingPhoto(true)
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${profile.household_id}/${profile.id}/${Date.now()}.${ext}`
+    const { error: uploadError } = await supabase.storage.from(PHOTO_BUCKET).upload(path, file, {
+      contentType: file.type
+    })
+    if (!uploadError) {
+      await supabase.from('progress_photos').insert({
+        household_id: profile.household_id,
+        profile_id: profile.id,
+        storage_path: path
+      })
+      await load()
+    }
+    setUploadingPhoto(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const deletePhoto = async (photo: PhotoRow) => {
+    await supabase.storage.from(PHOTO_BUCKET).remove([photo.storage_path])
+    await supabase.from('progress_photos').delete().eq('id', photo.id)
+    setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
   }
 
   return (
@@ -186,7 +239,7 @@ export default function Weight() {
 
       <div className="card">
         <h3 className="font-display font-semibold mb-3">Ajouter une mesure — {profile?.display_name}</h3>
-        <div className="grid sm:grid-cols-3 gap-3">
+        <div className="grid sm:grid-cols-2 gap-3">
           <label className="text-sm">
             Poids (kg)
             <input
@@ -196,17 +249,6 @@ export default function Weight() {
               value={weightInput}
               onChange={(e) => setWeightInput(e.target.value)}
               placeholder="ex: 87.5"
-            />
-          </label>
-          <label className="text-sm">
-            Douleur au dos (0-10)
-            <input
-              type="number"
-              min={0}
-              max={10}
-              className="input mt-1"
-              value={backPain}
-              onChange={(e) => setBackPain(e.target.value)}
             />
           </label>
           <label className="text-sm">
@@ -261,6 +303,63 @@ export default function Weight() {
       </div>
 
       <div className="card">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-display font-semibold">Photos de progression</h3>
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handlePhotoSelected}
+              className="hidden"
+              id="photo-input"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              className="btn-ink"
+            >
+              {uploadingPhoto ? 'Envoi…' : '📷 Prendre une photo'}
+            </button>
+          </div>
+        </div>
+        {photos.length === 0 ? (
+          <p className="text-sm text-muted">Aucune photo pour l'instant — privées, visibles seulement de vous deux.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {photos.map((p) => (
+              <div key={p.id} className="relative group">
+                {p.signedUrl && (
+                  <img
+                    src={p.signedUrl}
+                    alt={`Photo de progression du ${p.taken_at.slice(0, 10)}`}
+                    className="w-full aspect-square object-cover rounded-2xl border border-line"
+                  />
+                )}
+                <div className="absolute inset-x-0 bottom-0 rounded-b-2xl bg-ink/60 backdrop-blur-sm px-2 py-1 flex items-center justify-between">
+                  <span
+                    className="text-xs font-medium text-white"
+                  >
+                    {memberName(p.profile_id)} · {p.taken_at.slice(0, 10)}
+                  </span>
+                  {p.profile_id === profile?.id && (
+                    <button
+                      onClick={() => deletePhoto(p)}
+                      className="text-xs text-white/80 hover:text-white"
+                      aria-label="Supprimer la photo"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
         <h3 className="font-display font-semibold mb-3">Signes vitaux récents</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -268,7 +367,6 @@ export default function Weight() {
               <tr className="text-left text-muted border-b border-line">
                 <th className="py-1 pr-4">Date</th>
                 <th className="py-1 pr-4">Qui</th>
-                <th className="py-1 pr-4">Douleur dos</th>
                 <th className="py-1 pr-4">Sommeil</th>
               </tr>
             </thead>
@@ -279,7 +377,6 @@ export default function Weight() {
                   <td className="py-1 pr-4" style={{ color: memberColor(v.profile_id) }}>
                     {memberName(v.profile_id)}
                   </td>
-                  <td className="py-1 pr-4">{v.back_pain_level ?? '—'}/10</td>
                   <td className="py-1 pr-4">{v.sleep_hours ?? '—'} h</td>
                 </tr>
               ))}

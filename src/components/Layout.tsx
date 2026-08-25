@@ -59,6 +59,9 @@ export default function Layout() {
         <button onClick={signOut} className="text-xs text-muted hover:text-ink text-left">
           Déconnexion ({profile?.display_name})
         </button>
+        <NavLink to="/sauvegarde" className="text-xs text-muted hover:text-ink text-left">
+          💾 Sauvegarde
+        </NavLink>
       </aside>
       <main className="flex-1 p-4 md:p-8">
         <Outlet />

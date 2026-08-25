@@ -18,6 +18,7 @@ import BudgetHome from '@/pages/budget/BudgetHome'
 import Expenses from '@/pages/budget/Expenses'
 import Savings from '@/pages/budget/Savings'
 import Shared from '@/pages/budget/Shared'
+import Backup from '@/pages/backup/Backup'
 
 function Gate() {
   const { session, profile, loading } = useAuth()
@@ -60,6 +61,7 @@ function Gate() {
           <Route path="epargne" element={<Savings />} />
           <Route path="commun" element={<Shared />} />
         </Route>
+        <Route path="sauvegarde" element={<Backup />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

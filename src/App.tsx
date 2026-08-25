@@ -1,24 +1,34 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import Login from '@/pages/Login'
 import Layout from '@/components/Layout'
 import Dashboard from '@/pages/Dashboard'
-import SportHome from '@/pages/sport/SportHome'
-import Weight from '@/pages/sport/Weight'
-import Programs from '@/pages/sport/Programs'
-import Timer from '@/pages/sport/Timer'
-import Calendar from '@/pages/sport/Calendar'
-import Progress from '@/pages/sport/Progress'
-import FoodHome from '@/pages/food/FoodHome'
-import MealPlan from '@/pages/food/MealPlan'
-import Recipes from '@/pages/food/Recipes'
-import Shopping from '@/pages/food/Shopping'
-import Goals from '@/pages/food/Goals'
-import BudgetHome from '@/pages/budget/BudgetHome'
-import Expenses from '@/pages/budget/Expenses'
-import Savings from '@/pages/budget/Savings'
-import Shared from '@/pages/budget/Shared'
-import Backup from '@/pages/backup/Backup'
+
+// Chaque volet n'est chargé que lorsqu'on y navigue, au lieu d'être inclus dans le bundle initial
+const SportHome = lazy(() => import('@/pages/sport/SportHome'))
+const Weight = lazy(() => import('@/pages/sport/Weight'))
+const Programs = lazy(() => import('@/pages/sport/Programs'))
+const Timer = lazy(() => import('@/pages/sport/Timer'))
+const Calendar = lazy(() => import('@/pages/sport/Calendar'))
+const Progress = lazy(() => import('@/pages/sport/Progress'))
+
+const FoodHome = lazy(() => import('@/pages/food/FoodHome'))
+const MealPlan = lazy(() => import('@/pages/food/MealPlan'))
+const Recipes = lazy(() => import('@/pages/food/Recipes'))
+const Shopping = lazy(() => import('@/pages/food/Shopping'))
+const Goals = lazy(() => import('@/pages/food/Goals'))
+
+const BudgetHome = lazy(() => import('@/pages/budget/BudgetHome'))
+const Expenses = lazy(() => import('@/pages/budget/Expenses'))
+const Savings = lazy(() => import('@/pages/budget/Savings'))
+const Shared = lazy(() => import('@/pages/budget/Shared'))
+
+const Backup = lazy(() => import('@/pages/backup/Backup'))
+
+function PageFallback() {
+  return <div className="text-muted text-sm py-8 text-center">Chargement…</div>
+}
 
 function Gate() {
   const { session, profile, loading } = useAuth()
@@ -37,34 +47,36 @@ function Gate() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="sport" element={<SportHome />}>
-          <Route index element={<Navigate to="poids" replace />} />
-          <Route path="poids" element={<Weight />} />
-          <Route path="programmes" element={<Programs />} />
-          <Route path="minuteur" element={<Timer />} />
-          <Route path="calendrier" element={<Calendar />} />
-          <Route path="progression" element={<Progress />} />
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="sport" element={<SportHome />}>
+            <Route index element={<Navigate to="poids" replace />} />
+            <Route path="poids" element={<Weight />} />
+            <Route path="programmes" element={<Programs />} />
+            <Route path="minuteur" element={<Timer />} />
+            <Route path="calendrier" element={<Calendar />} />
+            <Route path="progression" element={<Progress />} />
+          </Route>
+          <Route path="nourriture" element={<FoodHome />}>
+            <Route index element={<Navigate to="plan" replace />} />
+            <Route path="plan" element={<MealPlan />} />
+            <Route path="recettes" element={<Recipes />} />
+            <Route path="courses" element={<Shopping />} />
+            <Route path="objectifs" element={<Goals />} />
+          </Route>
+          <Route path="budget" element={<BudgetHome />}>
+            <Route index element={<Navigate to="depenses" replace />} />
+            <Route path="depenses" element={<Expenses />} />
+            <Route path="epargne" element={<Savings />} />
+            <Route path="commun" element={<Shared />} />
+          </Route>
+          <Route path="sauvegarde" element={<Backup />} />
         </Route>
-        <Route path="nourriture" element={<FoodHome />}>
-          <Route index element={<Navigate to="plan" replace />} />
-          <Route path="plan" element={<MealPlan />} />
-          <Route path="recettes" element={<Recipes />} />
-          <Route path="courses" element={<Shopping />} />
-          <Route path="objectifs" element={<Goals />} />
-        </Route>
-        <Route path="budget" element={<BudgetHome />}>
-          <Route index element={<Navigate to="depenses" replace />} />
-          <Route path="depenses" element={<Expenses />} />
-          <Route path="epargne" element={<Savings />} />
-          <Route path="commun" element={<Shared />} />
-        </Route>
-        <Route path="sauvegarde" element={<Backup />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
 

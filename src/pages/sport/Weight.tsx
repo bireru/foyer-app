@@ -35,7 +35,7 @@ const COLOR_BY_TAG: Record<string, string> = { billel: '#E0714B', cerine: '#A857
 const PHOTO_BUCKET = 'progress-photos'
 
 export default function Weight() {
-  const { profile, householdMembers, refreshHousehold } = useAuth()
+  const { profile, householdMembers, updateLocalProfile } = useAuth()
   const [weights, setWeights] = useState<WeightRow[]>([])
   const [vitals, setVitals] = useState<VitalRow[]>([])
   const [photos, setPhotos] = useState<PhotoRow[]>([])
@@ -47,7 +47,7 @@ export default function Weight() {
   const [goalInput, setGoalInput] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const load = useCallback(async () => {
+  const loadWeightsAndVitals = useCallback(async () => {
     if (!profile) return
     const { data: w } = await supabase
       .from('weight_logs')
@@ -62,7 +62,10 @@ export default function Weight() {
       .order('measured_at', { ascending: false })
       .limit(30)
     setVitals(v ?? [])
+  }, [profile])
 
+  const loadPhotos = useCallback(async () => {
+    if (!profile) return
     const { data: p } = await supabase
       .from('progress_photos')
       .select('id, profile_id, taken_at, storage_path')
@@ -81,6 +84,10 @@ export default function Weight() {
       setPhotos([])
     }
   }, [profile])
+
+  const load = useCallback(async () => {
+    await Promise.all([loadWeightsAndVitals(), loadPhotos()])
+  }, [loadWeightsAndVitals, loadPhotos])
 
   useEffect(() => {
     load()
@@ -130,17 +137,15 @@ export default function Weight() {
     setWeightInput('')
     setSleepHours('')
     setSaving(false)
-    load()
+    loadWeightsAndVitals()
   }
 
   const saveGoal = async () => {
     if (!profile) return
-    await supabase
-      .from('profiles')
-      .update({ weight_goal_kg: goalInput ? parseFloat(goalInput) : null })
-      .eq('id', profile.id)
+    const value = goalInput ? parseFloat(goalInput) : null
+    await supabase.from('profiles').update({ weight_goal_kg: value }).eq('id', profile.id)
     setEditingGoal(false)
-    await refreshHousehold()
+    updateLocalProfile({ weight_goal_kg: value })
   }
 
   const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,7 +163,7 @@ export default function Weight() {
         profile_id: profile.id,
         storage_path: path
       })
-      await load()
+      await loadPhotos()
     }
     setUploadingPhoto(false)
     if (fileInputRef.current) fileInputRef.current.value = ''

@@ -22,7 +22,7 @@ interface Recipe {
 const COLOR_BY_TAG: Record<string, string> = { billel: '#E0714B', cerine: '#A8577A' }
 
 export default function Goals() {
-  const { profile, householdMembers, refreshHousehold } = useAuth()
+  const { profile, householdMembers, updateLocalProfile } = useAuth()
   const [editingGoals, setEditingGoals] = useState(false)
   const [calorieInput, setCalorieInput] = useState('')
   const [proteinInput, setProteinInput] = useState('')
@@ -64,15 +64,14 @@ export default function Goals() {
 
   const saveGoals = async () => {
     if (!profile) return
+    const calorieGoal = calorieInput ? parseInt(calorieInput, 10) : null
+    const proteinGoal = proteinInput ? parseInt(proteinInput, 10) : null
     await supabase
       .from('profiles')
-      .update({
-        calorie_goal_kcal: calorieInput ? parseInt(calorieInput, 10) : null,
-        protein_goal_g: proteinInput ? parseInt(proteinInput, 10) : null
-      })
+      .update({ calorie_goal_kcal: calorieGoal, protein_goal_g: proteinGoal })
       .eq('id', profile.id)
     setEditingGoals(false)
-    await refreshHousehold()
+    updateLocalProfile({ calorie_goal_kcal: calorieGoal, protein_goal_g: proteinGoal })
   }
 
   // Choisir une recette pré-remplit description/calories/protéines (les champs restent modifiables)

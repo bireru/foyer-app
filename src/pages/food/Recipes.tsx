@@ -101,14 +101,20 @@ export default function Recipes() {
       .single()
     if (recipe) {
       const validIngredients = ingredientDraft.filter((i) => i.name.trim())
+      let insertedIngredients: Ingredient[] = []
       if (validIngredients.length) {
-        await supabase.from('recipe_ingredients').insert(
-          validIngredients.map((i) => ({ recipe_id: recipe.id, name: i.name, quantity: i.quantity || null }))
-        )
+        const { data } = await supabase
+          .from('recipe_ingredients')
+          .insert(validIngredients.map((i) => ({ recipe_id: recipe.id, name: i.name, quantity: i.quantity || null })))
+          .select()
+        insertedIngredients = data ?? []
+      }
+      setRecipes((prev) => [...prev, recipe].sort((a, b) => a.name.localeCompare(b.name)))
+      if (insertedIngredients.length) {
+        setIngredientsByRecipe((prev) => ({ ...prev, [recipe.id]: insertedIngredients }))
       }
     }
     resetForm()
-    load()
   }
 
   const deleteRecipe = async (id: string) => {

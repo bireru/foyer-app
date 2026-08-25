@@ -19,6 +19,7 @@ interface AuthContextValue {
   loading: boolean
   signOut: () => Promise<void>
   refreshHousehold: () => Promise<void>
+  updateLocalProfile: (patch: Partial<Profile>) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -59,12 +60,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session) await loadHousehold(session.user.id)
   }, [session, loadHousehold])
 
+  // Met à jour l'objectif etc. localement après une écriture réussie, sans re-télécharger tout le foyer
+  const updateLocalProfile = useCallback((patch: Partial<Profile>) => {
+    setProfile((prev) => (prev ? { ...prev, ...patch } : prev))
+    setHouseholdMembers((prev) => prev.map((m) => (m.id === profile?.id ? { ...m, ...patch } : m)))
+  }, [profile?.id])
+
   const signOut = async () => {
     await supabase.auth.signOut()
   }
 
   return (
-    <AuthContext.Provider value={{ session, profile, householdMembers, loading, signOut, refreshHousehold }}>
+    <AuthContext.Provider value={{ session, profile, householdMembers, loading, signOut, refreshHousehold, updateLocalProfile }}>
       {children}
     </AuthContext.Provider>
   )

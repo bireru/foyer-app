@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -27,6 +27,8 @@ export default function Programs() {
   const [programs, setPrograms] = useState<Program[]>([])
   const [exercisesByProgram, setExercisesByProgram] = useState<Record<string, Exercise[]>>({})
   const [newProgramName, setNewProgramName] = useState('')
+  // Garde la dernière version connue de chaque exercice pour ne persister qu'au blur, pas à chaque frappe
+  const exerciseRef = useRef<Record<string, Exercise>>({})
 
   useEffect(() => setViewingId(profile?.id), [profile])
 
@@ -47,6 +49,7 @@ export default function Programs() {
       for (const ex of exs ?? []) {
         grouped[ex.program_id] ??= []
         grouped[ex.program_id].push(ex)
+        exerciseRef.current[ex.id] = ex
       }
       setExercisesByProgram(grouped)
     }
@@ -58,39 +61,67 @@ export default function Programs() {
 
   const addProgram = async () => {
     if (!profile || !viewingId || !newProgramName) return
-    await supabase.from('exercise_programs').insert({
-      household_id: profile.household_id,
-      profile_id: viewingId,
-      name: newProgramName
-    })
+    const { data } = await supabase
+      .from('exercise_programs')
+      .insert({ household_id: profile.household_id, profile_id: viewingId, name: newProgramName })
+      .select()
+      .single()
+    if (data) setPrograms((prev) => [...prev, data])
     setNewProgramName('')
-    load()
   }
 
   const addExercise = async (programId: string) => {
     const existing = exercisesByProgram[programId] ?? []
-    await supabase.from('program_exercises').insert({
-      program_id: programId,
-      order_index: existing.length,
-      name: 'Nouvel exercice',
-      target_sets: 3,
-      target_reps: 10,
-      rest_seconds: 90
-    })
-    load()
+    const { data } = await supabase
+      .from('program_exercises')
+      .insert({
+        program_id: programId,
+        order_index: existing.length,
+        name: 'Nouvel exercice',
+        target_sets: 3,
+        target_reps: 10,
+        rest_seconds: 90
+      })
+      .select()
+      .single()
+    if (data) {
+      exerciseRef.current[data.id] = data
+      setExercisesByProgram((prev) => ({ ...prev, [programId]: [...(prev[programId] ?? []), data] }))
+    }
   }
 
-  const updateExercise = async (ex: Exercise, patch: Partial<Exercise>) => {
+  // Met à jour uniquement l'état local — aucune requête réseau tant qu'on ne quitte pas le champ
+  const updateExerciseLocal = (ex: Exercise, patch: Partial<Exercise>) => {
+    const updated = { ...ex, ...patch }
+    exerciseRef.current[ex.id] = updated
     setExercisesByProgram((prev) => ({
       ...prev,
-      [ex.program_id]: prev[ex.program_id].map((e) => (e.id === ex.id ? { ...e, ...patch } : e))
+      [ex.program_id]: prev[ex.program_id].map((e) => (e.id === ex.id ? updated : e))
     }))
-    await supabase.from('program_exercises').update(patch).eq('id', ex.id)
+  }
+
+  // Envoyé à Supabase seulement quand le champ perd le focus (une requête par édition, pas par lettre)
+  const persistExercise = async (exId: string) => {
+    const ex = exerciseRef.current[exId]
+    if (!ex) return
+    await supabase
+      .from('program_exercises')
+      .update({
+        name: ex.name,
+        target_sets: ex.target_sets,
+        target_reps: ex.target_reps,
+        target_weight_kg: ex.target_weight_kg
+      })
+      .eq('id', ex.id)
   }
 
   const removeExercise = async (ex: Exercise) => {
     await supabase.from('program_exercises').delete().eq('id', ex.id)
-    load()
+    delete exerciseRef.current[ex.id]
+    setExercisesByProgram((prev) => ({
+      ...prev,
+      [ex.program_id]: prev[ex.program_id].filter((e) => e.id !== ex.id)
+    }))
   }
 
   const canEdit = viewingId === profile?.id
@@ -153,20 +184,23 @@ export default function Programs() {
                       <input
                         className="input col-span-2"
                         value={ex.name}
-                        onChange={(e) => updateExercise(ex, { name: e.target.value })}
+                        onChange={(e) => updateExerciseLocal(ex, { name: e.target.value })}
+                        onBlur={() => persistExercise(ex.id)}
                       />
                       <input
                         type="number"
                         className="input"
                         value={ex.target_sets}
-                        onChange={(e) => updateExercise(ex, { target_sets: parseInt(e.target.value, 10) })}
+                        onChange={(e) => updateExerciseLocal(ex, { target_sets: parseInt(e.target.value, 10) || 0 })}
+                        onBlur={() => persistExercise(ex.id)}
                         title="Séries"
                       />
                       <input
                         type="number"
                         className="input"
                         value={ex.target_reps}
-                        onChange={(e) => updateExercise(ex, { target_reps: parseInt(e.target.value, 10) })}
+                        onChange={(e) => updateExerciseLocal(ex, { target_reps: parseInt(e.target.value, 10) || 0 })}
+                        onBlur={() => persistExercise(ex.id)}
                         title="Répétitions"
                       />
                       <input
@@ -176,10 +210,11 @@ export default function Programs() {
                         value={ex.target_weight_kg ?? ''}
                         placeholder="kg"
                         onChange={(e) =>
-                          updateExercise(ex, {
+                          updateExerciseLocal(ex, {
                             target_weight_kg: e.target.value ? parseFloat(e.target.value) : null
                           })
                         }
+                        onBlur={() => persistExercise(ex.id)}
                       />
                       <button onClick={() => removeExercise(ex)} className="text-billel text-sm">
                         Suppr.

@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 
 const MODULES = [
   { path: '/sport', label: 'Sport & Bien-être', ready: true },
+  { path: '/nourriture', label: 'Nourriture', ready: true },
   { path: '/budget', label: 'Budget', ready: false },
   { path: '/sorties', label: 'Sorties', ready: false },
   { path: '/evenements', label: 'Événements', ready: false },

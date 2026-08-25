@@ -8,6 +8,8 @@ type Profile = {
   display_name: string
   color_tag: 'billel' | 'cerine'
   weight_goal_kg: number | null
+  calorie_goal_kcal: number | null
+  protein_goal_g: number | null
 }
 
 interface AuthContextValue {

@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 
 const ROOMS = [
   { path: '/sport', label: 'Sport & Bien-être', ready: true, desc: 'Poids, programmes, minuteur', icon: '🏋️' },
+  { path: '/nourriture', label: 'Nourriture', ready: true, desc: 'Plan de repas, recettes, courses', icon: '🍽️' },
   { path: '/budget', label: 'Budget', ready: false, desc: '', icon: '💶' },
   { path: '/sorties', label: 'Sorties', ready: false, desc: '', icon: '🍽️' },
   { path: '/evenements', label: 'Événements', ready: false, desc: '', icon: '🎉' },

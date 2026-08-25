@@ -9,6 +9,11 @@ import Programs from '@/pages/sport/Programs'
 import Timer from '@/pages/sport/Timer'
 import Calendar from '@/pages/sport/Calendar'
 import Progress from '@/pages/sport/Progress'
+import FoodHome from '@/pages/food/FoodHome'
+import MealPlan from '@/pages/food/MealPlan'
+import Recipes from '@/pages/food/Recipes'
+import Shopping from '@/pages/food/Shopping'
+import Goals from '@/pages/food/Goals'
 
 function Gate() {
   const { session, profile, loading } = useAuth()
@@ -37,6 +42,13 @@ function Gate() {
           <Route path="minuteur" element={<Timer />} />
           <Route path="calendrier" element={<Calendar />} />
           <Route path="progression" element={<Progress />} />
+        </Route>
+        <Route path="nourriture" element={<FoodHome />}>
+          <Route index element={<Navigate to="plan" replace />} />
+          <Route path="plan" element={<MealPlan />} />
+          <Route path="recettes" element={<Recipes />} />
+          <Route path="courses" element={<Shopping />} />
+          <Route path="objectifs" element={<Goals />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

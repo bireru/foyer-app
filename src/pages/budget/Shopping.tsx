@@ -24,6 +24,7 @@ interface ShoppingItem {
   estimated_cost: number | null
   actual_cost: number | null
   purchased: boolean
+  linked_transaction_id: string | null
 }
 
 interface ProductAlias {
@@ -269,16 +270,67 @@ export default function Shopping() {
     setNewItemCost('')
   }
 
+  // Trouve (ou crée) la catégorie "Courses" dans le budget privé de la personne connectée
+  const ensureCoursesCategoryId = async (): Promise<string | null> => {
+    if (!profile) return null
+    const { data: existing } = await supabase
+      .from('budget_categories')
+      .select('id')
+      .eq('profile_id', profile.id)
+      .eq('name', 'Courses')
+      .maybeSingle()
+    if (existing) return existing.id
+    const { data: created } = await supabase
+      .from('budget_categories')
+      .insert({ profile_id: profile.id, name: 'Courses' })
+      .select()
+      .single()
+    return created?.id ?? null
+  }
+
   const togglePurchased = async (item: ShoppingItem) => {
-    const updated = { ...item, purchased: !item.purchased }
-    setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)))
-    await supabase.from('shopping_items').update({ purchased: updated.purchased }).eq('id', item.id)
+    if (!profile) return
+    const goingToPurchased = !item.purchased
+
+    if (goingToPurchased) {
+      const cost = item.actual_cost ?? item.estimated_cost
+      let linkedId: string | null = null
+      if (cost != null) {
+        const categoryId = await ensureCoursesCategoryId()
+        const { data: tx } = await supabase
+          .from('budget_transactions')
+          .insert({
+            household_id: profile.household_id,
+            profile_id: profile.id,
+            label: item.name,
+            amount: cost,
+            category_id: categoryId
+          })
+          .select()
+          .single()
+        linkedId = tx?.id ?? null
+      }
+      const updated = { ...item, purchased: true, linked_transaction_id: linkedId }
+      setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)))
+      await supabase.from('shopping_items').update({ purchased: true, linked_transaction_id: linkedId }).eq('id', item.id)
+    } else {
+      if (item.linked_transaction_id) {
+        // Ne fonctionne que si c'est bien toi qui avais coché l'article — sécurité par ligne (RLS) du budget privé
+        await supabase.from('budget_transactions').delete().eq('id', item.linked_transaction_id)
+      }
+      const updated = { ...item, purchased: false, linked_transaction_id: null }
+      setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)))
+      await supabase.from('shopping_items').update({ purchased: false, linked_transaction_id: null }).eq('id', item.id)
+    }
   }
 
   const updateActualCost = async (item: ShoppingItem, value: string) => {
     const cost = value ? parseFloat(value) : null
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, actual_cost: cost } : i)))
     await supabase.from('shopping_items').update({ actual_cost: cost }).eq('id', item.id)
+    if (item.purchased && item.linked_transaction_id && cost != null) {
+      await supabase.from('budget_transactions').update({ amount: cost }).eq('id', item.linked_transaction_id)
+    }
   }
 
   const deleteItem = async (id: string) => {
@@ -352,7 +404,32 @@ export default function Shopping() {
         }))
       )
       .select()
-    if (data) setItems((prev) => [...prev, ...data])
+
+    if (data && data.length) {
+      // Les articles scannés sont déjà "achetés" — on crée directement les dépenses liées dans ton budget privé
+      const categoryId = await ensureCoursesCategoryId()
+      const withLinks = await Promise.all(
+        data.map(async (item) => {
+          const { data: tx } = await supabase
+            .from('budget_transactions')
+            .insert({
+              household_id: profile.household_id,
+              profile_id: profile.id,
+              label: item.name,
+              amount: item.actual_cost,
+              category_id: categoryId
+            })
+            .select()
+            .single()
+          if (tx) {
+            await supabase.from('shopping_items').update({ linked_transaction_id: tx.id }).eq('id', item.id)
+            return { ...item, linked_transaction_id: tx.id }
+          }
+          return item
+        })
+      )
+      setItems((prev) => [...prev, ...withLinks])
+    }
 
     // Mémorise (ou renforce) l'association texte brut → nom choisi, pour la prochaine fois
     await supabase.from('product_aliases').upsert(
@@ -488,6 +565,9 @@ export default function Shopping() {
               <span>Total estimé : <strong className="text-ink">{totalEstimated.toFixed(2)} €</strong></span>
               <span>Total réel : <strong className="text-ink">{totalActual.toFixed(2)} €</strong></span>
             </div>
+            <p className="text-xs text-muted mb-3">
+              Cocher un article avec un prix l'ajoute automatiquement à ton budget privé (catégorie « Courses »).
+            </p>
             <ul className="space-y-2">
               {items.map((item) => (
                 <li key={item.id} className="flex items-center gap-3 border-b border-line/50 pb-2">

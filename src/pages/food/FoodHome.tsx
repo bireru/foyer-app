@@ -3,7 +3,6 @@ import { NavLink, Outlet } from 'react-router-dom'
 const TABS = [
   { path: '/nourriture/plan', label: 'Plan de repas' },
   { path: '/nourriture/recettes', label: 'Recettes' },
-  { path: '/nourriture/courses', label: 'Courses' },
   { path: '/nourriture/objectifs', label: 'Objectifs' }
 ]
 

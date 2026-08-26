@@ -16,13 +16,13 @@ const Progress = lazy(() => import('@/pages/sport/Progress'))
 const FoodHome = lazy(() => import('@/pages/food/FoodHome'))
 const MealPlan = lazy(() => import('@/pages/food/MealPlan'))
 const Recipes = lazy(() => import('@/pages/food/Recipes'))
-const Shopping = lazy(() => import('@/pages/food/Shopping'))
 const Goals = lazy(() => import('@/pages/food/Goals'))
 
 const BudgetHome = lazy(() => import('@/pages/budget/BudgetHome'))
 const Expenses = lazy(() => import('@/pages/budget/Expenses'))
 const Savings = lazy(() => import('@/pages/budget/Savings'))
 const Shared = lazy(() => import('@/pages/budget/Shared'))
+const Shopping = lazy(() => import('@/pages/budget/Shopping'))
 
 const Backup = lazy(() => import('@/pages/backup/Backup'))
 
@@ -63,7 +63,6 @@ function Gate() {
             <Route index element={<Navigate to="plan" replace />} />
             <Route path="plan" element={<MealPlan />} />
             <Route path="recettes" element={<Recipes />} />
-            <Route path="courses" element={<Shopping />} />
             <Route path="objectifs" element={<Goals />} />
           </Route>
           <Route path="budget" element={<BudgetHome />}>
@@ -71,6 +70,7 @@ function Gate() {
             <Route path="depenses" element={<Expenses />} />
             <Route path="epargne" element={<Savings />} />
             <Route path="commun" element={<Shared />} />
+            <Route path="courses" element={<Shopping />} />
           </Route>
           <Route path="sauvegarde" element={<Backup />} />
         </Route>

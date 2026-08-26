@@ -4,8 +4,10 @@ import { useAuth } from '@/hooks/useAuth'
 
 interface ScannedLine {
   name: string
+  rawText: string
   price: number
   include: boolean
+  matched: boolean
 }
 
 interface ShoppingList {
@@ -24,6 +26,11 @@ interface ShoppingItem {
   purchased: boolean
 }
 
+interface ProductAlias {
+  raw_text: string
+  canonical_name: string
+}
+
 function startOfWeek(date: Date) {
   const d = new Date(date)
   const day = (d.getDay() + 6) % 7
@@ -38,6 +45,70 @@ function isoDate(d: Date) {
 function defaultListName(date: Date) {
   const monday = startOfWeek(date)
   return `Courses du ${monday.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`
+}
+
+// --- Reconnaissance d'articles sans IA : normalisation + distance de Levenshtein ---
+
+function normalizeText(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[m][n]
+}
+
+function similarity(a: string, b: string): number {
+  const na = normalizeText(a)
+  const nb = normalizeText(b)
+  if (!na || !nb) return 0
+  return 1 - levenshtein(na, nb) / Math.max(na.length, nb.length)
+}
+
+const MATCH_THRESHOLD = 0.72
+
+function findBestAlias(rawName: string, aliases: ProductAlias[]): { name: string; score: number } | null {
+  let best: { name: string; score: number } | null = null
+  for (const a of aliases) {
+    const score = similarity(rawName, a.raw_text)
+    if (!best || score > best.score) best = { name: a.canonical_name, score }
+  }
+  return best && best.score >= MATCH_THRESHOLD ? best : null
+}
+
+// Extrait les lignes "nom ... prix" d'un texte de ticket de caisse OCR
+function extractPricedLines(text: string): { rawName: string; price: number }[] {
+  const lines = text.split('\n')
+  const priceAtEnd = /(\d{1,4}[.,]\d{2})\s*(?:€|EUR)?\s*$/
+  const results: { rawName: string; price: number }[] = []
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line || line.length < 3) continue
+    const match = line.match(priceAtEnd)
+    if (!match) continue
+    const price = parseFloat(match[1].replace(',', '.'))
+    if (!price || price <= 0 || price > 500) continue
+    const rawName = line.slice(0, match.index).trim().replace(/[.\-*]+$/, '').trim()
+    if (!rawName) continue
+    if (/total|sous-total|tva|especes|carte|rendu|a payer/i.test(rawName)) continue
+    results.push({ rawName, price })
+  }
+  return results
 }
 
 export default function Shopping() {
@@ -215,36 +286,33 @@ export default function Shopping() {
     setItems((prev) => prev.filter((i) => i.id !== id))
   }
 
-  // Extrait les lignes "nom ... prix" d'un texte de ticket de caisse OCR
-  function extractPricedLines(text: string): ScannedLine[] {
-    const lines = text.split('\n')
-    const priceAtEnd = /(\d{1,4}[.,]\d{2})\s*(?:€|EUR)?\s*$/
-    const results: ScannedLine[] = []
-    for (const rawLine of lines) {
-      const line = rawLine.trim()
-      if (!line || line.length < 3) continue
-      const match = line.match(priceAtEnd)
-      if (!match) continue
-      const price = parseFloat(match[1].replace(',', '.'))
-      if (!price || price <= 0 || price > 500) continue // filtre les faux positifs évidents
-      const name = line.slice(0, match.index).trim().replace(/[.\-*]+$/, '').trim()
-      if (!name) continue
-      // Ignore les lignes de total/sous-total/TVA qui ne sont pas des articles
-      if (/total|sous-total|tva|especes|carte|rendu|a payer/i.test(name)) continue
-      results.push({ name, price, include: true })
-    }
-    return results
-  }
-
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file || !profile) return
     setScanning(true)
     setScannedLines(null)
     try {
       const { recognize } = await import('tesseract.js')
       const { data } = await recognize(file, 'fra')
-      const parsed = extractPricedLines(data.text)
+      const rawLines = extractPricedLines(data.text)
+
+      // Charge la table d'apprentissage du foyer pour rapprocher les textes bruts de noms connus
+      const { data: aliases } = await supabase
+        .from('product_aliases')
+        .select('raw_text, canonical_name')
+        .eq('household_id', profile.household_id)
+
+      const parsed: ScannedLine[] = rawLines.map(({ rawName, price }) => {
+        const best = findBestAlias(rawName, aliases ?? [])
+        return {
+          name: best ? best.name : rawName,
+          rawText: rawName,
+          price,
+          include: true,
+          matched: !!best
+        }
+      })
+
       if (parsed.length === 0) {
         alert("Aucun article avec un prix n'a été reconnu sur ce reçu. Tu peux quand même les ajouter à la main.")
       }
@@ -267,7 +335,7 @@ export default function Shopping() {
   }
 
   const confirmScannedLines = async () => {
-    if (!activeListId || !scannedLines) return
+    if (!activeListId || !scannedLines || !profile) return
     const toAdd = scannedLines.filter((l) => l.include && l.name)
     if (toAdd.length === 0) {
       setScannedLines(null)
@@ -285,6 +353,17 @@ export default function Shopping() {
       )
       .select()
     if (data) setItems((prev) => [...prev, ...data])
+
+    // Mémorise (ou renforce) l'association texte brut → nom choisi, pour la prochaine fois
+    await supabase.from('product_aliases').upsert(
+      toAdd.map((l) => ({
+        household_id: profile.household_id,
+        raw_text: normalizeText(l.rawText),
+        canonical_name: l.name
+      })),
+      { onConflict: 'household_id,raw_text' }
+    )
+
     setScannedLines(null)
   }
 
@@ -341,7 +420,7 @@ export default function Shopping() {
               disabled={scanning}
               className="btn border border-line text-ink"
             >
-              {scanning ? 'Analyse du reçu…' : '🧾 Scanner un reçu'}
+              {scanning ? 'Lecture du reçu…' : '🧾 Scanner un reçu'}
             </button>
           )}
           <input
@@ -359,7 +438,7 @@ export default function Shopping() {
         <div className="card">
           <h3 className="font-display font-semibold mb-2">Articles détectés sur le reçu</h3>
           <p className="text-xs text-muted mb-3">
-            Vérifie les noms et prix (l'OCR se trompe parfois) avant d'ajouter à la liste. Décoche ce qui ne doit pas être ajouté.
+            Les articles avec <span className="tag-cerine">reconnu</span> ont été rapprochés d'un nom déjà connu. Vérifie et corrige au besoin — tes corrections sont mémorisées pour la prochaine fois.
           </p>
           <ul className="space-y-2">
             {scannedLines.map((line, i) => (
@@ -370,6 +449,7 @@ export default function Shopping() {
                   value={line.name}
                   onChange={(e) => updateScannedLine(i, { name: e.target.value })}
                 />
+                {line.matched && <span className="tag-cerine whitespace-nowrap">reconnu</span>}
                 <input
                   type="number"
                   step="0.01"

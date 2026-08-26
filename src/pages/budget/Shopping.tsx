@@ -420,7 +420,7 @@ export default function Shopping() {
               disabled={scanning}
               className="btn border border-line text-ink"
             >
-              {scanning ? 'Lecture du reçu…' : '🧾 Scanner un reçu'}
+              {scanning ? 'Lecture du reçu…' : '🧾 Scanner un reçu (bêta)'}
             </button>
           )}
           <input

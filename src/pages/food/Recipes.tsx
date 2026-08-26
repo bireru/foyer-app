@@ -14,48 +14,80 @@ interface Recipe {
   name: string
   calories_kcal: number | null
   protein_g: number | null
-  tags: string[]
   notes: string | null
 }
 
-const TAG_OPTIONS = ['léger', 'riche en protéines', 'batch cooking', 'rapide', 'végé']
+interface RecipeCategory {
+  id: string
+  name: string
+}
 
 export default function Recipes() {
   const { profile } = useAuth()
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [ingredientsByRecipe, setIngredientsByRecipe] = useState<Record<string, Ingredient[]>>({})
+  const [categories, setCategories] = useState<RecipeCategory[]>([])
+  const [categoriesByRecipe, setCategoriesByRecipe] = useState<Record<string, RecipeCategory[]>>({})
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [filterTag, setFilterTag] = useState<string>('')
+  const [filterCategoryId, setFilterCategoryId] = useState<string>('')
+
+  // Gestion des catégories
+  const [showCategoryEditor, setShowCategoryEditor] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [editingCategoryName, setEditingCategoryName] = useState('')
 
   // Formulaire "nouvelle recette"
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [calories, setCalories] = useState('')
   const [protein, setProtein] = useState('')
-  const [tags, setTags] = useState<string[]>([])
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const [ingredientDraft, setIngredientDraft] = useState<{ name: string; quantity: string }[]>([
     { name: '', quantity: '' }
   ])
 
   const load = useCallback(async () => {
     if (!profile) return
+    const { data: cats } = await supabase
+      .from('recipe_categories')
+      .select('id, name')
+      .eq('household_id', profile.household_id)
+      .order('name', { ascending: true })
+    setCategories(cats ?? [])
+
     const { data: recs } = await supabase
       .from('recipes')
-      .select('id, name, calories_kcal, protein_g, tags, notes')
+      .select('id, name, calories_kcal, protein_g, notes')
       .eq('household_id', profile.household_id)
       .order('name', { ascending: true })
     setRecipes(recs ?? [])
+
     if (recs && recs.length) {
       const { data: ings } = await supabase
         .from('recipe_ingredients')
         .select('*')
         .in('recipe_id', recs.map((r) => r.id))
-      const grouped: Record<string, Ingredient[]> = {}
+      const groupedIngredients: Record<string, Ingredient[]> = {}
       for (const ing of ings ?? []) {
-        grouped[ing.recipe_id] ??= []
-        grouped[ing.recipe_id].push(ing)
+        groupedIngredients[ing.recipe_id] ??= []
+        groupedIngredients[ing.recipe_id].push(ing)
       }
-      setIngredientsByRecipe(grouped)
+      setIngredientsByRecipe(groupedIngredients)
+
+      const { data: links } = await supabase
+        .from('recipe_category_links')
+        .select('recipe_id, category_id')
+        .in('recipe_id', recs.map((r) => r.id))
+      const catById = new Map((cats ?? []).map((c) => [c.id, c]))
+      const groupedCategories: Record<string, RecipeCategory[]> = {}
+      for (const link of links ?? []) {
+        const cat = catById.get(link.category_id)
+        if (!cat) continue
+        groupedCategories[link.recipe_id] ??= []
+        groupedCategories[link.recipe_id].push(cat)
+      }
+      setCategoriesByRecipe(groupedCategories)
     }
   }, [profile])
 
@@ -63,8 +95,8 @@ export default function Recipes() {
     load()
   }, [load])
 
-  const toggleTag = (tag: string) => {
-    setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+  const toggleSelectedCategory = (id: string) => {
+    setSelectedCategoryIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
   }
 
   const addIngredientRow = () => setIngredientDraft((prev) => [...prev, { name: '', quantity: '' }])
@@ -81,7 +113,7 @@ export default function Recipes() {
     setName('')
     setCalories('')
     setProtein('')
-    setTags([])
+    setSelectedCategoryIds([])
     setIngredientDraft([{ name: '', quantity: '' }])
     setShowForm(false)
   }
@@ -94,8 +126,7 @@ export default function Recipes() {
         household_id: profile.household_id,
         name,
         calories_kcal: calories ? parseInt(calories, 10) : null,
-        protein_g: protein ? parseInt(protein, 10) : null,
-        tags
+        protein_g: protein ? parseInt(protein, 10) : null
       })
       .select()
       .single()
@@ -109,10 +140,19 @@ export default function Recipes() {
           .select()
         insertedIngredients = data ?? []
       }
+      if (selectedCategoryIds.length) {
+        await supabase
+          .from('recipe_category_links')
+          .insert(selectedCategoryIds.map((categoryId) => ({ recipe_id: recipe.id, category_id: categoryId })))
+      }
       setRecipes((prev) => [...prev, recipe].sort((a, b) => a.name.localeCompare(b.name)))
       if (insertedIngredients.length) {
         setIngredientsByRecipe((prev) => ({ ...prev, [recipe.id]: insertedIngredients }))
       }
+      setCategoriesByRecipe((prev) => ({
+        ...prev,
+        [recipe.id]: categories.filter((c) => selectedCategoryIds.includes(c.id))
+      }))
     }
     resetForm()
   }
@@ -122,25 +162,116 @@ export default function Recipes() {
     setRecipes((prev) => prev.filter((r) => r.id !== id))
   }
 
-  const visibleRecipes = filterTag ? recipes.filter((r) => r.tags.includes(filterTag)) : recipes
+  const addCategory = async () => {
+    if (!profile || !newCategoryName.trim()) return
+    const { data } = await supabase
+      .from('recipe_categories')
+      .insert({ household_id: profile.household_id, name: newCategoryName.trim() })
+      .select()
+      .single()
+    if (data) setCategories((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+    setNewCategoryName('')
+  }
+
+  const startEditCategory = (cat: RecipeCategory) => {
+    setEditingCategoryId(cat.id)
+    setEditingCategoryName(cat.name)
+  }
+
+  const saveEditCategory = async () => {
+    if (!editingCategoryId || !editingCategoryName.trim()) return
+    await supabase.from('recipe_categories').update({ name: editingCategoryName.trim() }).eq('id', editingCategoryId)
+    const updatedName = editingCategoryName.trim()
+    setCategories((prev) => prev.map((c) => (c.id === editingCategoryId ? { ...c, name: updatedName } : c)))
+    setCategoriesByRecipe((prev) => {
+      const next: Record<string, RecipeCategory[]> = {}
+      for (const [recipeId, cats] of Object.entries(prev)) {
+        next[recipeId] = cats.map((c) => (c.id === editingCategoryId ? { ...c, name: updatedName } : c))
+      }
+      return next
+    })
+    setEditingCategoryId(null)
+  }
+
+  const deleteCategory = async (id: string) => {
+    await supabase.from('recipe_categories').delete().eq('id', id)
+    setCategories((prev) => prev.filter((c) => c.id !== id))
+    setCategoriesByRecipe((prev) => {
+      const next: Record<string, RecipeCategory[]> = {}
+      for (const [recipeId, cats] of Object.entries(prev)) {
+        next[recipeId] = cats.filter((c) => c.id !== id)
+      }
+      return next
+    })
+    if (filterCategoryId === id) setFilterCategoryId('')
+  }
+
+  const visibleRecipes = filterCategoryId
+    ? recipes.filter((r) => (categoriesByRecipe[r.id] ?? []).some((c) => c.id === filterCategoryId))
+    : recipes
 
   return (
     <div className="space-y-6">
+      {/* Gestion des catégories */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-display font-semibold">Catégories</h3>
+          <button onClick={() => setShowCategoryEditor((s) => !s)} className="text-xs underline text-muted">
+            {showCategoryEditor ? 'Fermer' : 'Gérer'}
+          </button>
+        </div>
+        {showCategoryEditor && (
+          <div className="space-y-2">
+            {categories.map((cat) => (
+              <div key={cat.id} className="flex items-center gap-2">
+                {editingCategoryId === cat.id ? (
+                  <>
+                    <input
+                      className="input flex-1"
+                      value={editingCategoryName}
+                      onChange={(e) => setEditingCategoryName(e.target.value)}
+                      autoFocus
+                    />
+                    <button onClick={saveEditCategory} className="text-sm underline">Valider</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm">{cat.name}</span>
+                    <button onClick={() => startEditCategory(cat)} className="text-xs underline text-muted">Renommer</button>
+                    <button onClick={() => deleteCategory(cat.id)} className="text-billel text-xs">Supprimer</button>
+                  </>
+                )}
+              </div>
+            ))}
+            {categories.length === 0 && <p className="text-sm text-muted">Aucune catégorie pour l'instant.</p>}
+            <div className="flex gap-2 pt-2">
+              <input
+                className="input flex-1"
+                placeholder="Nouvelle catégorie"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+              />
+              <button onClick={addCategory} className="btn-ink">+ Ajouter</button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => setFilterTag('')}
-            className={`btn text-xs px-3 py-1.5 ${filterTag === '' ? 'bg-billel text-white' : 'border border-line text-ink'}`}
+            onClick={() => setFilterCategoryId('')}
+            className={`btn text-xs px-3 py-1.5 ${filterCategoryId === '' ? 'bg-billel text-white' : 'border border-line text-ink'}`}
           >
             Toutes
           </button>
-          {TAG_OPTIONS.map((tag) => (
+          {categories.map((cat) => (
             <button
-              key={tag}
-              onClick={() => setFilterTag(tag)}
-              className={`btn text-xs px-3 py-1.5 ${filterTag === tag ? 'bg-billel text-white' : 'border border-line text-ink'}`}
+              key={cat.id}
+              onClick={() => setFilterCategoryId(cat.id)}
+              className={`btn text-xs px-3 py-1.5 ${filterCategoryId === cat.id ? 'bg-billel text-white' : 'border border-line text-ink'}`}
             >
-              {tag}
+              {cat.name}
             </button>
           ))}
         </div>
@@ -163,16 +294,19 @@ export default function Recipes() {
             </label>
           </div>
           <div>
-            <p className="text-sm mb-1">Tags</p>
+            <p className="text-sm mb-1">Catégories</p>
             <div className="flex gap-2 flex-wrap">
-              {TAG_OPTIONS.map((tag) => (
+              {categories.length === 0 && (
+                <p className="text-xs text-muted italic">Crée une catégorie ci-dessus pour pouvoir en choisir ici.</p>
+              )}
+              {categories.map((cat) => (
                 <button
-                  key={tag}
+                  key={cat.id}
                   type="button"
-                  onClick={() => toggleTag(tag)}
-                  className={tags.includes(tag) ? 'tag-billel' : 'tag-billel opacity-40'}
+                  onClick={() => toggleSelectedCategory(cat.id)}
+                  className={selectedCategoryIds.includes(cat.id) ? 'tag-billel' : 'tag-billel opacity-40'}
                 >
-                  {tag}
+                  {cat.name}
                 </button>
               ))}
             </div>
@@ -218,9 +352,9 @@ export default function Recipes() {
                 {r.calories_kcal != null && <span>{r.calories_kcal} kcal</span>}
                 {r.protein_g != null && <span>{r.protein_g} g protéines</span>}
               </div>
-              {r.tags.length > 0 && (
+              {(categoriesByRecipe[r.id] ?? []).length > 0 && (
                 <div className="flex gap-1 flex-wrap mt-2">
-                  {r.tags.map((t) => <span key={t} className="tag-cerine">{t}</span>)}
+                  {(categoriesByRecipe[r.id] ?? []).map((c) => <span key={c.id} className="tag-cerine">{c.name}</span>)}
                 </div>
               )}
               <button

@@ -101,6 +101,8 @@ export default function Weight() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [editingGoal, setEditingGoal] = useState(false)
   const [goalInput, setGoalInput] = useState('')
+  const [editingHeight, setEditingHeight] = useState(false)
+  const [heightInput, setHeightInput] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadWeightsAndVitals = useCallback(async () => {
@@ -151,7 +153,8 @@ export default function Weight() {
 
   useEffect(() => {
     setGoalInput(profile?.weight_goal_kg != null ? String(profile.weight_goal_kg) : '')
-  }, [profile?.weight_goal_kg])
+    setHeightInput(profile?.height_cm != null ? String(profile.height_cm) : '')
+  }, [profile?.weight_goal_kg, profile?.height_cm])
 
   const memberColor = (profileId: string) => {
     const m = householdMembers.find((h) => h.id === profileId)
@@ -202,6 +205,29 @@ export default function Weight() {
     await supabase.from('profiles').update({ weight_goal_kg: value }).eq('id', profile.id)
     setEditingGoal(false)
     updateLocalProfile({ weight_goal_kg: value })
+  }
+
+  const saveHeight = async () => {
+    if (!profile) return
+    const value = heightInput ? parseFloat(heightInput) : null
+    await supabase.from('profiles').update({ height_cm: value }).eq('id', profile.id)
+    setEditingHeight(false)
+    updateLocalProfile({ height_cm: value })
+  }
+
+  const imcFor = (memberId: string) => {
+    const m = householdMembers.find((h) => h.id === memberId)
+    const w = latestWeight(memberId)
+    if (!m?.height_cm || !w) return null
+    const heightM = m.height_cm / 100
+    return w / (heightM * heightM)
+  }
+
+  const imcLabel = (imc: number) => {
+    if (imc < 18.5) return 'Insuffisance pondérale'
+    if (imc < 25) return 'Corpulence normale'
+    if (imc < 30) return 'Surpoids'
+    return 'Obésité'
   }
 
   const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -322,6 +348,56 @@ export default function Weight() {
                   )}
                 </p>
               )}
+
+              {/* IMC */}
+              <div className="mt-3 pt-3 border-t border-line/60">
+                {isMe && editingHeight ? (
+                  <div className="flex items-end gap-2">
+                    <label className="text-xs flex-1">
+                      Taille (cm)
+                      <input
+                        type="number"
+                        step="0.5"
+                        autoFocus
+                        className="input mt-1 text-sm"
+                        value={heightInput}
+                        onChange={(e) => setHeightInput(e.target.value)}
+                        placeholder="ex: 171"
+                      />
+                    </label>
+                    <button onClick={saveHeight} className="btn-ink text-xs px-3 py-1.5">Valider</button>
+                  </div>
+                ) : m.height_cm != null ? (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      {imcFor(m.id) != null ? (
+                        <p className="text-sm">
+                          IMC <strong className="font-display">{imcFor(m.id)!.toFixed(1)}</strong>
+                          <span className="text-muted"> — {imcLabel(imcFor(m.id)!)}</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted">Ajoute une pesée pour calculer l'IMC.</p>
+                      )}
+                      <p className="text-xs text-muted">Taille : {m.height_cm} cm</p>
+                    </div>
+                    {isMe && (
+                      <button onClick={() => setEditingHeight(true)} className="text-xs underline text-muted">
+                        Modifier
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">
+                    {isMe ? (
+                      <button onClick={() => setEditingHeight(true)} className="underline">
+                        Ajouter ta taille pour calculer l'IMC
+                      </button>
+                    ) : (
+                      "Taille non renseignée."
+                    )}
+                  </p>
+                )}
+              </div>
             </div>
           )
         })}

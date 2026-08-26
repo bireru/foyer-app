@@ -27,6 +27,8 @@ export default function Programs() {
   const [programs, setPrograms] = useState<Program[]>([])
   const [exercisesByProgram, setExercisesByProgram] = useState<Record<string, Exercise[]>>({})
   const [newProgramName, setNewProgramName] = useState('')
+  const [editingProgramId, setEditingProgramId] = useState<string | null>(null)
+  const [editingProgramName, setEditingProgramName] = useState('')
   // Garde la dernière version connue de chaque exercice pour ne persister qu'au blur, pas à chaque frappe
   const exerciseRef = useRef<Record<string, Exercise>>({})
 
@@ -124,6 +126,29 @@ export default function Programs() {
     }))
   }
 
+  const startEditProgram = (program: Program) => {
+    setEditingProgramId(program.id)
+    setEditingProgramName(program.name)
+  }
+
+  const saveEditProgram = async () => {
+    if (!editingProgramId || !editingProgramName.trim()) return
+    await supabase.from('exercise_programs').update({ name: editingProgramName.trim() }).eq('id', editingProgramId)
+    setPrograms((prev) => prev.map((p) => (p.id === editingProgramId ? { ...p, name: editingProgramName.trim() } : p)))
+    setEditingProgramId(null)
+  }
+
+  const deleteProgram = async (programId: string) => {
+    if (!window.confirm('Supprimer ce programme et tous ses exercices ?')) return
+    await supabase.from('exercise_programs').delete().eq('id', programId)
+    setPrograms((prev) => prev.filter((p) => p.id !== programId))
+    setExercisesByProgram((prev) => {
+      const next = { ...prev }
+      delete next[programId]
+      return next
+    })
+  }
+
   const canEdit = viewingId === profile?.id
 
   return (
@@ -169,11 +194,31 @@ export default function Programs() {
         .map((program) => (
           <div key={program.id} className="card">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-display font-semibold">{program.name}</h3>
-              {canEdit && (
-                <button onClick={() => addExercise(program.id)} className="text-sm text-ink underline">
-                  + Exercice
-                </button>
+              {canEdit && editingProgramId === program.id ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    className="input flex-1"
+                    value={editingProgramName}
+                    onChange={(e) => setEditingProgramName(e.target.value)}
+                    autoFocus
+                  />
+                  <button onClick={saveEditProgram} className="text-sm underline whitespace-nowrap">Valider</button>
+                </div>
+              ) : (
+                <h3 className="font-display font-semibold">{program.name}</h3>
+              )}
+              {canEdit && editingProgramId !== program.id && (
+                <div className="flex items-center gap-3 whitespace-nowrap">
+                  <button onClick={() => addExercise(program.id)} className="text-sm text-ink underline">
+                    + Exercice
+                  </button>
+                  <button onClick={() => startEditProgram(program)} className="text-xs text-muted underline">
+                    Renommer
+                  </button>
+                  <button onClick={() => deleteProgram(program.id)} className="text-billel text-xs underline">
+                    Supprimer
+                  </button>
+                </div>
               )}
             </div>
             <div className="space-y-2">

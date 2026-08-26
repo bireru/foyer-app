@@ -35,10 +35,13 @@ export default function Timer() {
   const [setNumber, setSetNumber] = useState(1)
   const [reps, setReps] = useState('')
   const [weight, setWeight] = useState('')
-  const [restLeft, setRestLeft] = useState(0)
-  const [elapsed, setElapsed] = useState(0)
   const [loggedSets, setLoggedSets] = useState<LoggedSet[]>([])
-  const intervalRef = useRef<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [, forceTick] = useState(0)
+
+  // Horodatages plutôt que des compteurs qui se décrémentent — plus fiable, pas d'effets fragiles
+  const sessionStartRef = useRef<number>(0)
+  const restEndAtRef = useRef<number | null>(null)
   const setStartRef = useRef<number>(Date.now())
 
   useEffect(() => {
@@ -51,31 +54,18 @@ export default function Timer() {
       .then(({ data }) => setPrograms(data ?? []))
   }, [profile])
 
-  // Chrono global de la séance
+  // Une seule horloge : fait avancer l'affichage chaque seconde et détecte la fin du repos
   useEffect(() => {
     if (!sessionId) return
-    const id = window.setInterval(() => setElapsed((e) => e + 1), 1000)
+    const id = window.setInterval(() => {
+      if (restEndAtRef.current !== null && Date.now() >= restEndAtRef.current) {
+        restEndAtRef.current = null
+        setStartRef.current = Date.now()
+      }
+      forceTick((t) => t + 1)
+    }, 1000)
     return () => window.clearInterval(id)
   }, [sessionId])
-
-  // Décompte de repos
-  useEffect(() => {
-    if (restLeft <= 0) {
-      if (intervalRef.current) window.clearInterval(intervalRef.current)
-      return
-    }
-    intervalRef.current = window.setInterval(() => {
-      setRestLeft((r) => Math.max(0, r - 1))
-    }, 1000)
-    return () => {
-      if (intervalRef.current) window.clearInterval(intervalRef.current)
-    }
-  }, [restLeft > 0])
-
-  // Dès que le repos retombe à 0, la saisie redevient active : on démarre le chrono de la série
-  useEffect(() => {
-    if (restLeft === 0) setStartRef.current = Date.now()
-  }, [restLeft])
 
   const startSession = async () => {
     if (!profile || !selectedProgramId) return
@@ -94,66 +84,92 @@ export default function Timer() {
       setSessionId(session.id)
       setExerciseIndex(0)
       setSetNumber(1)
-      setElapsed(0)
       setLoggedSets([])
+      sessionStartRef.current = Date.now()
+      restEndAtRef.current = null
       setStartRef.current = Date.now()
     }
   }
 
   const currentExercise = exercises[exerciseIndex]
+  const isCardio = currentExercise ? currentExercise.target_sets <= 0 : false
+  const restLeft = restEndAtRef.current !== null ? Math.max(0, Math.ceil((restEndAtRef.current - Date.now()) / 1000)) : 0
+  const elapsed = sessionId ? Math.max(0, Math.floor((Date.now() - sessionStartRef.current) / 1000)) : 0
+
+  const skipRest = () => {
+    restEndAtRef.current = null
+    setStartRef.current = Date.now()
+    forceTick((t) => t + 1)
+  }
 
   const logSet = async () => {
-    if (!sessionId || !currentExercise) return
-    const durationSeconds = Math.max(0, Math.round((Date.now() - setStartRef.current) / 1000))
-    const repsDone = reps ? parseInt(reps, 10) : null
-    const weightKg = weight ? parseFloat(weight) : null
-    const { data: inserted } = await supabase
-      .from('workout_sets')
-      .insert({
-        session_id: sessionId,
-        program_exercise_id: currentExercise.id,
-        set_number: setNumber,
-        reps_done: repsDone,
-        weight_kg: weightKg,
-        duration_seconds: durationSeconds,
-        completed_at: new Date().toISOString()
-      })
-      .select()
-      .single()
-    if (inserted) {
-      setLoggedSets((prev) => [
-        {
-          id: inserted.id,
-          exerciseName: currentExercise.name,
-          setNumber,
-          reps: repsDone,
-          weight: weightKg,
-          durationSeconds
-        },
-        ...prev
-      ])
-    }
-    setReps('')
-    setWeight('')
-    if (setNumber < currentExercise.target_sets) {
-      setSetNumber(setNumber + 1)
-      setRestLeft(currentExercise.rest_seconds)
-    } else if (exerciseIndex < exercises.length - 1) {
-      setExerciseIndex(exerciseIndex + 1)
-      setSetNumber(1)
-      setRestLeft(currentExercise.rest_seconds)
-    } else {
-      // dernière série du dernier exercice
-      endSession()
+    if (!sessionId || !currentExercise || saving) return
+    setSaving(true)
+    try {
+      const durationSeconds = Math.max(0, Math.round((Date.now() - setStartRef.current) / 1000))
+      const repsDone = reps ? parseInt(reps, 10) : null
+      const weightKg = weight ? parseFloat(weight) : null
+      const { data: inserted, error } = await supabase
+        .from('workout_sets')
+        .insert({
+          session_id: sessionId,
+          program_exercise_id: currentExercise.id,
+          set_number: setNumber,
+          reps_done: repsDone,
+          weight_kg: weightKg,
+          duration_seconds: durationSeconds,
+          completed_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+      if (error) throw error
+      if (inserted) {
+        setLoggedSets((prev) => [
+          {
+            id: inserted.id,
+            exerciseName: currentExercise.name,
+            setNumber,
+            reps: repsDone,
+            weight: weightKg,
+            durationSeconds
+          },
+          ...prev
+        ])
+      }
+      setReps('')
+      setWeight('')
+
+      const targetSets = Math.max(currentExercise.target_sets, 1) // 0 = cardio, une seule "série" suffit à valider
+      if (setNumber < targetSets) {
+        setSetNumber(setNumber + 1)
+        restEndAtRef.current = Date.now() + currentExercise.rest_seconds * 1000
+      } else if (exerciseIndex < exercises.length - 1) {
+        setExerciseIndex(exerciseIndex + 1)
+        setSetNumber(1)
+        restEndAtRef.current = Date.now() + currentExercise.rest_seconds * 1000
+      } else {
+        await endSession()
+      }
+    } catch (err) {
+      console.error(err)
+      alert("L'enregistrement de la série a échoué (connexion ?). Réessaie.")
+    } finally {
+      setSaving(false)
     }
   }
 
   const endSession = async () => {
     if (!sessionId) return
-    await supabase.from('workout_sessions').update({ ended_at: new Date().toISOString() }).eq('id', sessionId)
-    setSessionId(null)
-    setExercises([])
-    setRestLeft(0)
+    try {
+      await supabase.from('workout_sessions').update({ ended_at: new Date().toISOString() }).eq('id', sessionId)
+    } catch (err) {
+      console.error(err)
+      // Même en cas d'échec réseau, on ne laisse jamais l'interface bloquée
+    } finally {
+      setSessionId(null)
+      setExercises([])
+      restEndAtRef.current = null
+    }
   }
 
   const deleteLoggedSet = async (id: string) => {
@@ -191,31 +207,36 @@ export default function Timer() {
         <div className="card space-y-3">
           <h3 className="font-display font-semibold text-lg">{currentExercise.name}</h3>
           <p className="text-sm text-muted">
-            Série {setNumber} / {currentExercise.target_sets} — objectif {currentExercise.target_reps} reps
-            {currentExercise.target_weight_kg ? ` @ ${currentExercise.target_weight_kg}kg` : ''}
+            {isCardio
+              ? 'Exercice cardio — pas de séries à compter'
+              : <>Série {setNumber} / {currentExercise.target_sets} — objectif {currentExercise.target_reps} reps
+                {currentExercise.target_weight_kg ? ` @ ${currentExercise.target_weight_kg}kg` : ''}</>}
           </p>
 
           {restLeft > 0 ? (
             <div className="text-center py-6">
               <p className="text-sm text-muted mb-1">Repos</p>
               <p className="font-mono text-4xl text-billel">{fmt(restLeft)}</p>
-              <button onClick={() => setRestLeft(0)} className="text-sm underline mt-2">Passer le repos</button>
+              <button onClick={skipRest} className="text-sm underline mt-2">Passer le repos</button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm">
-                Répétitions faites
-                <input type="number" className="input mt-1" value={reps} onChange={(e) => setReps(e.target.value)} />
-              </label>
-              <label className="text-sm">
-                Poids (kg)
-                <input type="number" step="0.5" className="input mt-1" value={weight} onChange={(e) => setWeight(e.target.value)} />
-              </label>
-            </div>
-          )}
-
-          {restLeft === 0 && (
-            <button onClick={logSet} className="btn-ink w-full">Valider la série</button>
+            <>
+              {!isCardio && (
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm">
+                    Répétitions faites
+                    <input type="number" className="input mt-1" value={reps} onChange={(e) => setReps(e.target.value)} />
+                  </label>
+                  <label className="text-sm">
+                    Poids (kg)
+                    <input type="number" step="0.5" className="input mt-1" value={weight} onChange={(e) => setWeight(e.target.value)} />
+                  </label>
+                </div>
+              )}
+              <button onClick={logSet} disabled={saving} className="btn-ink w-full">
+                {saving ? 'Enregistrement…' : isCardio ? 'Terminer cet exercice →' : 'Valider la série'}
+              </button>
+            </>
           )}
         </div>
       ) : (

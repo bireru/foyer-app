@@ -10,6 +10,7 @@ type Profile = {
   weight_goal_kg: number | null
   calorie_goal_kcal: number | null
   protein_goal_g: number | null
+  height_cm: number | null
 }
 
 interface AuthContextValue {

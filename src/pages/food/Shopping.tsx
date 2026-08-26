@@ -1,6 +1,12 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+
+interface ScannedLine {
+  name: string
+  price: number
+  include: boolean
+}
 
 interface ShoppingList {
   id: string
@@ -37,6 +43,9 @@ export default function Shopping() {
   const [newItemName, setNewItemName] = useState('')
   const [newItemCost, setNewItemCost] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [scannedLines, setScannedLines] = useState<ScannedLine[] | null>(null)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     if (!profile) return
@@ -175,6 +184,79 @@ export default function Shopping() {
     setItems((prev) => prev.filter((i) => i.id !== id))
   }
 
+  // Extrait les lignes "nom ... prix" d'un texte de ticket de caisse OCR
+  function extractPricedLines(text: string): ScannedLine[] {
+    const lines = text.split('\n')
+    const priceAtEnd = /(\d{1,4}[.,]\d{2})\s*(?:€|EUR)?\s*$/
+    const results: ScannedLine[] = []
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (!line || line.length < 3) continue
+      const match = line.match(priceAtEnd)
+      if (!match) continue
+      const price = parseFloat(match[1].replace(',', '.'))
+      if (!price || price <= 0 || price > 500) continue // filtre les faux positifs évidents
+      const name = line.slice(0, match.index).trim().replace(/[.\-*]+$/, '').trim()
+      if (!name) continue
+      // Ignore les lignes de total/sous-total/TVA qui ne sont pas des articles
+      if (/total|sous-total|tva|especes|carte|rendu|a payer/i.test(name)) continue
+      results.push({ name, price, include: true })
+    }
+    return results
+  }
+
+  const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setScanning(true)
+    setScannedLines(null)
+    try {
+      const { recognize } = await import('tesseract.js')
+      const { data } = await recognize(file, 'fra')
+      const parsed = extractPricedLines(data.text)
+      if (parsed.length === 0) {
+        alert("Aucun article avec un prix n'a été reconnu sur ce reçu. Tu peux quand même les ajouter à la main.")
+      }
+      setScannedLines(parsed)
+    } catch (err) {
+      console.error(err)
+      alert("La lecture du reçu a échoué. Réessaie avec une photo bien cadrée et lisible.")
+    } finally {
+      setScanning(false)
+      if (receiptInputRef.current) receiptInputRef.current.value = ''
+    }
+  }
+
+  const toggleScannedLine = (index: number) => {
+    setScannedLines((prev) => prev?.map((l, i) => (i === index ? { ...l, include: !l.include } : l)) ?? null)
+  }
+
+  const updateScannedLine = (index: number, patch: Partial<ScannedLine>) => {
+    setScannedLines((prev) => prev?.map((l, i) => (i === index ? { ...l, ...patch } : l)) ?? null)
+  }
+
+  const confirmScannedLines = async () => {
+    if (!activeListId || !scannedLines) return
+    const toAdd = scannedLines.filter((l) => l.include && l.name)
+    if (toAdd.length === 0) {
+      setScannedLines(null)
+      return
+    }
+    const { data } = await supabase
+      .from('shopping_items')
+      .insert(
+        toAdd.map((l) => ({
+          list_id: activeListId,
+          name: l.name,
+          actual_cost: l.price,
+          purchased: true
+        }))
+      )
+      .select()
+    if (data) setItems((prev) => [...prev, ...data])
+    setScannedLines(null)
+  }
+
   const totalEstimated = items.reduce((sum, i) => sum + (i.estimated_cost ?? 0), 0)
   const totalActual = items.reduce((sum, i) => sum + (i.actual_cost ?? 0), 0)
 
@@ -191,15 +273,66 @@ export default function Shopping() {
             <option key={l.id} value={l.id}>{l.name}</option>
           ))}
         </select>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={generateFromWeek} disabled={generating} className="btn-ink">
             {generating ? 'Génération…' : '🔄 Générer depuis le plan de la semaine'}
           </button>
           <button onClick={createEmptyList} className="btn border border-line text-ink">
             + Liste vide
           </button>
+          {activeListId && (
+            <button
+              onClick={() => receiptInputRef.current?.click()}
+              disabled={scanning}
+              className="btn border border-line text-ink"
+            >
+              {scanning ? 'Analyse du reçu…' : '🧾 Scanner un reçu'}
+            </button>
+          )}
+          <input
+            ref={receiptInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleScanReceipt}
+            className="hidden"
+          />
         </div>
       </div>
+
+      {scannedLines && (
+        <div className="card">
+          <h3 className="font-display font-semibold mb-2">Articles détectés sur le reçu</h3>
+          <p className="text-xs text-muted mb-3">
+            Vérifie les noms et prix (l'OCR se trompe parfois) avant d'ajouter à la liste. Décoche ce qui ne doit pas être ajouté.
+          </p>
+          <ul className="space-y-2">
+            {scannedLines.map((line, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <input type="checkbox" checked={line.include} onChange={() => toggleScannedLine(i)} className="w-4 h-4" />
+                <input
+                  className="input flex-1 text-sm"
+                  value={line.name}
+                  onChange={(e) => updateScannedLine(i, { name: e.target.value })}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input w-24 text-sm"
+                  value={line.price}
+                  onChange={(e) => updateScannedLine(i, { price: parseFloat(e.target.value) || 0 })}
+                />
+                <span className="text-sm">€</span>
+              </li>
+            ))}
+            {scannedLines.length === 0 && <p className="text-sm text-muted">Rien de détecté.</p>}
+          </ul>
+          <div className="flex gap-2 mt-3">
+            <button onClick={confirmScannedLines} className="btn-ink">Ajouter à la liste</button>
+            <button onClick={() => setScannedLines(null)} className="btn border border-line text-ink">Annuler</button>
+          </div>
+        </div>
+      )}
 
       {activeListId && (
         <>

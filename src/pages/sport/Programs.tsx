@@ -19,6 +19,8 @@ interface Exercise {
   target_reps: number
   target_weight_kg: number | null
   rest_seconds: number
+  is_cardio: boolean
+  target_duration_seconds: number | null
 }
 
 export default function Programs() {
@@ -82,7 +84,8 @@ export default function Programs() {
         name: 'Nouvel exercice',
         target_sets: 3,
         target_reps: 10,
-        rest_seconds: 90
+        rest_seconds: 90,
+        is_cardio: false
       })
       .select()
       .single()
@@ -112,9 +115,21 @@ export default function Programs() {
         name: ex.name,
         target_sets: ex.target_sets,
         target_reps: ex.target_reps,
-        target_weight_kg: ex.target_weight_kg
+        target_weight_kg: ex.target_weight_kg,
+        is_cardio: ex.is_cardio,
+        target_duration_seconds: ex.target_duration_seconds
       })
       .eq('id', ex.id)
+  }
+
+  const toggleCardio = async (ex: Exercise) => {
+    const updated = { ...ex, is_cardio: !ex.is_cardio }
+    exerciseRef.current[ex.id] = updated
+    setExercisesByProgram((prev) => ({
+      ...prev,
+      [ex.program_id]: prev[ex.program_id].map((e) => (e.id === ex.id ? updated : e))
+    }))
+    await supabase.from('program_exercises').update({ is_cardio: updated.is_cardio }).eq('id', ex.id)
   }
 
   const removeExercise = async (ex: Exercise) => {
@@ -223,52 +238,90 @@ export default function Programs() {
             </div>
             <div className="space-y-2">
               {(exercisesByProgram[program.id] ?? []).map((ex) => (
-                <div key={ex.id} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-center border-b border-line/50 pb-2">
+                <div key={ex.id} className="border-b border-line/50 pb-3">
                   {canEdit ? (
-                    <>
-                      <input
-                        className="input col-span-2"
-                        value={ex.name}
-                        onChange={(e) => updateExerciseLocal(ex, { name: e.target.value })}
-                        onBlur={() => persistExercise(ex.id)}
-                      />
-                      <input
-                        type="number"
-                        className="input"
-                        value={ex.target_sets}
-                        onChange={(e) => updateExerciseLocal(ex, { target_sets: parseInt(e.target.value, 10) || 0 })}
-                        onBlur={() => persistExercise(ex.id)}
-                        title="Séries"
-                      />
-                      <input
-                        type="number"
-                        className="input"
-                        value={ex.target_reps}
-                        onChange={(e) => updateExerciseLocal(ex, { target_reps: parseInt(e.target.value, 10) || 0 })}
-                        onBlur={() => persistExercise(ex.id)}
-                        title="Répétitions"
-                      />
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="input"
-                        value={ex.target_weight_kg ?? ''}
-                        placeholder="kg"
-                        onChange={(e) =>
-                          updateExerciseLocal(ex, {
-                            target_weight_kg: e.target.value ? parseFloat(e.target.value) : null
-                          })
-                        }
-                        onBlur={() => persistExercise(ex.id)}
-                      />
-                      <button onClick={() => removeExercise(ex)} className="text-billel text-sm">
-                        Suppr.
-                      </button>
-                    </>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="input flex-1"
+                          value={ex.name}
+                          onChange={(e) => updateExerciseLocal(ex, { name: e.target.value })}
+                          onBlur={() => persistExercise(ex.id)}
+                        />
+                        <label className="flex items-center gap-1 text-xs text-muted whitespace-nowrap">
+                          <input type="checkbox" checked={ex.is_cardio} onChange={() => toggleCardio(ex)} className="w-4 h-4" />
+                          Cardio
+                        </label>
+                        <button onClick={() => removeExercise(ex)} className="text-billel text-sm whitespace-nowrap">
+                          Suppr.
+                        </button>
+                      </div>
+                      {ex.is_cardio ? (
+                        <label className="text-xs text-muted">
+                          Temps cible (minutes)
+                          <input
+                            type="number"
+                            min={0}
+                            className="input mt-1 w-32"
+                            value={ex.target_duration_seconds != null ? Math.round(ex.target_duration_seconds / 60) : ''}
+                            placeholder="ex: 20"
+                            onChange={(e) =>
+                              updateExerciseLocal(ex, {
+                                target_duration_seconds: e.target.value ? parseInt(e.target.value, 10) * 60 : null
+                              })
+                            }
+                            onBlur={() => persistExercise(ex.id)}
+                          />
+                        </label>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          <label className="text-xs text-muted">
+                            Séries
+                            <input
+                              type="number"
+                              className="input mt-1"
+                              value={ex.target_sets}
+                              onChange={(e) => updateExerciseLocal(ex, { target_sets: parseInt(e.target.value, 10) || 0 })}
+                              onBlur={() => persistExercise(ex.id)}
+                            />
+                          </label>
+                          <label className="text-xs text-muted">
+                            Répétitions
+                            <input
+                              type="number"
+                              className="input mt-1"
+                              value={ex.target_reps}
+                              onChange={(e) => updateExerciseLocal(ex, { target_reps: parseInt(e.target.value, 10) || 0 })}
+                              onBlur={() => persistExercise(ex.id)}
+                            />
+                          </label>
+                          <label className="text-xs text-muted">
+                            Poids (kg)
+                            <input
+                              type="number"
+                              step="0.5"
+                              className="input mt-1"
+                              value={ex.target_weight_kg ?? ''}
+                              placeholder="kg"
+                              onChange={(e) =>
+                                updateExerciseLocal(ex, {
+                                  target_weight_kg: e.target.value ? parseFloat(e.target.value) : null
+                                })
+                              }
+                              onBlur={() => persistExercise(ex.id)}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
                   ) : (
-                    <div className="col-span-6 font-mono text-sm">
-                      {ex.name} — {ex.target_sets}×{ex.target_reps}
-                      {ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : ''}
+                    <div className="font-mono text-sm">
+                      {ex.name}
+                      {ex.is_cardio ? (
+                        <span className="text-muted"> — cardio{ex.target_duration_seconds ? `, ${Math.round(ex.target_duration_seconds / 60)} min` : ''}</span>
+                      ) : (
+                        <span className="text-muted"> — {ex.target_sets}×{ex.target_reps}{ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : ''}</span>
+                      )}
                     </div>
                   )}
                 </div>

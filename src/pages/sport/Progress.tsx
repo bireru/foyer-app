@@ -5,13 +5,9 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 
-interface SessionMeta {
+interface SetRow {
   profile_id: string
-  started_at: string
-}
-
-interface SetJoinRow {
-  session_id: string
+  logged_at: string
   reps_done: number | null
   weight_kg: number | null
   program_exercises: { name: string } | null
@@ -34,30 +30,19 @@ export default function Progress() {
 
   const load = useCallback(async () => {
     if (!profile) return
-    const { data: sessionRows } = await supabase
-      .from('workout_sessions')
-      .select('id, profile_id, started_at')
-      .eq('household_id', profile.household_id)
-    if (!sessionRows || sessionRows.length === 0) {
-      setPoints([])
-      return
-    }
-    const sessionMeta: Record<string, SessionMeta> = {}
-    for (const s of sessionRows) sessionMeta[s.id] = { profile_id: s.profile_id, started_at: s.started_at }
-
-    const { data: setRows } = await supabase
+    const { data } = await supabase
       .from('workout_sets')
-      .select('session_id, reps_done, weight_kg, program_exercises(name)')
-      .in('session_id', sessionRows.map((s) => s.id))
+      .select('profile_id, logged_at, reps_done, weight_kg, program_exercises(name)')
+      .eq('household_id', profile.household_id)
+      .not('weight_kg', 'is', null)
 
     const combined: CombinedPoint[] = []
-    for (const row of (setRows as unknown as SetJoinRow[]) ?? []) {
-      const meta = sessionMeta[row.session_id]
+    for (const row of (data as unknown as SetRow[]) ?? []) {
       const exerciseName = row.program_exercises?.name
-      if (!meta || !exerciseName || row.weight_kg == null) continue
+      if (!exerciseName || row.weight_kg == null) continue
       combined.push({
-        profileId: meta.profile_id,
-        date: meta.started_at.slice(0, 10),
+        profileId: row.profile_id,
+        date: row.logged_at.slice(0, 10),
         exerciseName,
         weight: row.weight_kg,
         reps: row.reps_done
@@ -84,7 +69,7 @@ export default function Progress() {
 
   const filtered = points.filter((p) => p.exerciseName === selectedExercise)
 
-  // Un point par séance : le poids max soulevé ce jour-là, par personne
+  // Un point par jour : le poids max soulevé ce jour-là, par personne
   const chartData = useMemo(() => {
     const byDate: Record<string, Record<string, number | string>> = {}
     for (const p of filtered) {
@@ -113,7 +98,7 @@ export default function Progress() {
     <div className="space-y-6">
       {exerciseNames.length === 0 ? (
         <p className="text-sm text-muted">
-          Aucune série avec un poids enregistré pour l'instant — fais une séance dans le Minuteur pour voir apparaître ta progression ici.
+          Aucune série avec un poids enregistré pour l'instant — note un exercice dans l'onglet Journal pour voir apparaître ta progression ici.
         </p>
       ) : (
         <>

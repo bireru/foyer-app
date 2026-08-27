@@ -14,6 +14,7 @@ interface Transaction {
 interface Category {
   id: string
   name: string
+  monthly_limit_eur: number | null
 }
 
 interface Income {
@@ -45,6 +46,7 @@ export default function Expenses() {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
   const [editingCategoryName, setEditingCategoryName] = useState('')
+  const [editingCategoryLimit, setEditingCategoryLimit] = useState('')
 
   // Salaire du mois
   const [editingIncome, setEditingIncome] = useState(false)
@@ -55,7 +57,7 @@ export default function Expenses() {
     if (!profile) return
     const { data } = await supabase
       .from('budget_categories')
-      .select('id, name')
+      .select('id, name, monthly_limit_eur')
       .eq('profile_id', profile.id)
       .order('name', { ascending: true })
     setCategories(data ?? [])
@@ -137,13 +139,18 @@ export default function Expenses() {
   const startEditCategory = (cat: Category) => {
     setEditingCategoryId(cat.id)
     setEditingCategoryName(cat.name)
+    setEditingCategoryLimit(cat.monthly_limit_eur != null ? String(cat.monthly_limit_eur) : '')
   }
 
   const saveEditCategory = async () => {
     if (!editingCategoryId || !editingCategoryName.trim()) return
-    await supabase.from('budget_categories').update({ name: editingCategoryName.trim() }).eq('id', editingCategoryId)
+    const limit = editingCategoryLimit ? parseFloat(editingCategoryLimit) : null
+    await supabase
+      .from('budget_categories')
+      .update({ name: editingCategoryName.trim(), monthly_limit_eur: limit })
+      .eq('id', editingCategoryId)
     setCategories((prev) =>
-      prev.map((c) => (c.id === editingCategoryId ? { ...c, name: editingCategoryName.trim() } : c))
+      prev.map((c) => (c.id === editingCategoryId ? { ...c, name: editingCategoryName.trim(), monthly_limit_eur: limit } : c))
     )
     setEditingCategoryId(null)
   }
@@ -276,11 +283,24 @@ export default function Expenses() {
                       onChange={(e) => setEditingCategoryName(e.target.value)}
                       autoFocus
                     />
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input w-28"
+                      placeholder="Limite €"
+                      value={editingCategoryLimit}
+                      onChange={(e) => setEditingCategoryLimit(e.target.value)}
+                    />
                     <button onClick={saveEditCategory} className="text-sm underline">Valider</button>
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 text-sm">{cat.name}</span>
+                    <span className="flex-1 text-sm">
+                      {cat.name}
+                      {cat.monthly_limit_eur != null && (
+                        <span className="text-muted text-xs"> — limite {cat.monthly_limit_eur}€/mois</span>
+                      )}
+                    </span>
                     <button onClick={() => startEditCategory(cat)} className="text-xs underline text-muted">Renommer</button>
                     <button onClick={() => deleteCategory(cat.id)} className="text-billel text-xs">Supprimer</button>
                   </>
@@ -296,6 +316,7 @@ export default function Expenses() {
               />
               <button onClick={addCategory} className="btn-ink">+ Ajouter</button>
             </div>
+            <p className="text-xs text-muted">Définis une limite mensuelle sur une catégorie (en la renommant) pour recevoir une alerte de dépassement.</p>
           </div>
         )}
       </div>

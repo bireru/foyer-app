@@ -4,6 +4,7 @@ const TABS = [
   { path: '/sport/poids', label: 'Poids & signes vitaux' },
   { path: '/sport/programmes', label: 'Programmes' },
   { path: '/sport/minuteur', label: 'Minuteur' },
+  { path: '/sport/journal', label: 'Journal' },
   { path: '/sport/calendrier', label: 'Calendrier' },
   { path: '/sport/progression', label: 'Progression' }
 ]
@@ -12,7 +13,7 @@ export default function SportHome() {
   return (
     <div>
       <h2 className="text-2xl font-semibold mb-4">Sport & Bien-être</h2>
-      <div className="flex gap-2 mb-6 border-b border-line">
+      <div className="flex gap-2 mb-6 border-b border-line overflow-x-auto">
         {TABS.map((t) => (
           <NavLink
             key={t.path}

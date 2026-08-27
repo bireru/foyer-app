@@ -64,6 +64,9 @@ export default function Layout() {
         <NavLink to="/sauvegarde" className="text-xs text-muted hover:text-ink text-left">
           💾 Sauvegarde
         </NavLink>
+        <NavLink to="/notifications" className="text-xs text-muted hover:text-ink text-left">
+          🔔 Notifications
+        </NavLink>
       </aside>
       <main className="flex-1 p-4 md:p-8">
         <Outlet />

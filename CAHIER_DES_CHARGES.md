@@ -2,7 +2,7 @@
 
 Application de gestion de foyer partagée pour Billel & Cérine. PWA installable (PC, Android, iPhone).
 
-**Dernière mise à jour :** fonctionnalité "budget auto-alimenté par les courses cochées" + catégories de recettes modifiables.
+**Dernière mise à jour :** refonte du suivi de progression — minuteur simplifié en chronomètre libre, nouvel onglet Journal pour la saisie manuelle, support des exercices cardio. Notifications push mises en standby (non activées par l'utilisateur).
 
 ---
 
@@ -21,6 +21,7 @@ Application de gestion de foyer partagée pour Billel & Cérine. PWA installable
 - **Sport & Bien-être, Nourriture** : entièrement partagés — Billel et Cérine voient toutes les données l'un de l'autre
 - **Budget → Mes dépenses, Budget → Épargne** : strictement **privés** — chacun ne voit que les siennes, y compris au niveau base de données
 - **Budget → Commun, Budget → Courses** : partagés
+- **Notifications push** : chaque appareil s'abonne individuellement ; les rappels sont envoyés à toute personne abonnée, sans distinction privé/partagé (ce sont des rappels, pas des données)
 
 ---
 
@@ -38,21 +39,26 @@ Application de gestion de foyer partagée pour Billel & Cérine. PWA installable
 - Un ou plusieurs programmes d'exercices par personne
 - Chacun modifie uniquement son propre programme (lecture seule sur celui du/de la partenaire)
 - Programmes et exercices : ajoutables, renommables, supprimables
-- Par exercice : séries, répétitions, poids cible, temps de repos — modifiables individuellement
+- Par exercice : case «Cardio» — si cochée, un temps cible (minutes) remplace séries/répétitions/poids
+- Si non cardio : séries, répétitions, poids cible, temps de repos — modifiables individuellement
 
 ### Minuteur
-- Démarre une séance à partir d'un programme
-- Suivi en temps réel : chrono de séance, décompte de repos entre les séries
-- Support du cardio : exercices à "0 série" traités comme une action unique chronométrée, sans compteur de séries
-- Chaque série validée est enregistrée (répétitions, poids, durée réelle) et reste visible/supprimable pendant la séance
-- Système basé sur des horodatages (pas de compteurs fragiles) pour éviter les blocages
+- **Chronomètre simple et libre** : démarrer / pause / réinitialiser, aucune sauvegarde, aucun lien avec un programme ou un exercice
+- Pour enregistrer une progression, voir l'onglet **Journal**
+
+### Journal
+- Saisie manuelle d'un exercice effectué : sélection du programme, puis de l'exercice au sein de ce programme
+- Si l'exercice est cardio : durée en minutes uniquement
+- Sinon : nombre de séries, répétitions, poids
+- Chaque entrée est horodatée (date + heure), visible dans un journal récent, supprimable
+- Remplace l'ancien modèle «séance en direct» — aucune notion de «démarrer une séance» nécessaire
 
 ### Calendrier
-- Vue mensuelle, un point coloré par personne sur les jours avec séance
-- Clique sur un jour → résumé par exercice (nombre de séries, répétitions totales, temps total, poids moyen), horodaté
+- Vue mensuelle, un point coloré par personne sur les jours avec au moins une entrée de journal
+- Clique sur un jour → liste chronologique des entrées (heure, qui, exercice, détail : séries/reps/poids ou durée si cardio)
 
 ### Progression
-- Sélection d'un exercice → record personnel (poids max, reps, date) par personne
+- Sélection d'un exercice → record personnel (poids max, reps, date) par personne, calculé à partir des entrées du Journal
 - Graphique d'évolution du poids soulevé dans le temps, courbes superposées
 
 ---
@@ -81,6 +87,7 @@ Application de gestion de foyer partagée pour Billel & Cérine. PWA installable
 ### Mes dépenses (privé)
 - Transactions avec libellé, montant, catégorie, date — navigation mois par mois
 - Catégories personnalisables (ajout/renommage/suppression), les transactions liées passent en "Sans catégorie" si leur catégorie est supprimée
+- **Limite mensuelle optionnelle par catégorie**, utilisée pour l'alerte de dépassement de budget (notifications)
 - Salaire mensuel : montant + jour de réception, modifiable par mois
 - Reste à vivre calculé en temps réel
 - Camembert de répartition des dépenses par rapport au salaire (avec part "non dépensé"), pourcentages affichés
@@ -112,12 +119,26 @@ Application de gestion de foyer partagée pour Billel & Cérine. PWA installable
 
 ---
 
+## 5bis. Notifications push — **en standby**
+
+Système construit et prêt, mais **non activé** par l'utilisateur pour l'instant (mise en pause volontaire). Fonctionnalités prévues quand réactivé :
+
+- ⚖️ **Pesée** — chaque lundi à 7h00
+- 📷 **Photo de progression** — 1er et 3ème lundi du mois à 7h00
+- 🍽️ **Journal alimentaire** — tous les jours à 14h00 et 21h00
+- 📅 **Plan de repas** — dimanche à 19h00, uniquement si la semaine suivante n'a aucun repas planifié
+- 💶 **Dépassement de budget** — dès qu'une catégorie avec une limite mensuelle définie est dépassée (vérifié à 8h et 20h)
+
+Activation/désactivation par appareil sur la page `/notifications`. Architecture : clés VAPID + service worker personnalisé (`src/sw.ts`, stratégie `injectManifest`) + Edge Function `check-reminders` (calcule l'heure de Paris, envoie via Web Push, évite les doublons via `notification_log`) + `pg_cron`/`pg_net` (déclenchement toutes les 15 min). Reste à faire pour activer : coller la migration 0014, déployer `check-reminders`, ajouter les secrets VAPID, programmer pg_cron (migration 0015).
+
+---
+
 ## 6. Infrastructure Supabase
 
 - **Auth** : email + mot de passe, un profil par personne rattaché à un foyer (`households` / `profiles`)
 - **Storage** : bucket `progress-photos` (privé, RLS, liens signés)
-- **Edge Functions** : `scan-receipt` — code écrit pour une lecture de reçu par IA (Claude vision), **actuellement non utilisé** par l'appli (remplacé par la reconnaissance sans IA), conservé pour un usage futur éventuel
-- **Migrations SQL** : `0001` à `0013`, dans `supabase/migrations/`, à coller manuellement dans le SQL Editor Supabase (ne s'exécutent pas automatiquement au déploiement)
+- **Edge Functions** : `scan-receipt` — code écrit pour une lecture de reçu par IA (Claude vision), **actuellement non utilisé** par l'appli (remplacé par la reconnaissance sans IA), conservé pour un usage futur éventuel ; `check-reminders` — envoie les notifications push programmées (voir section 5bis), déclenchée par `pg_cron` toutes les 15 min
+- **Migrations SQL** : `0001` à `0016`, dans `supabase/migrations/`, à coller manuellement dans le SQL Editor Supabase (ne s'exécutent pas automatiquement au déploiement)
 
 ---
 

@@ -10,6 +10,7 @@ const SportHome = lazy(() => import('@/pages/sport/SportHome'))
 const Weight = lazy(() => import('@/pages/sport/Weight'))
 const Programs = lazy(() => import('@/pages/sport/Programs'))
 const Timer = lazy(() => import('@/pages/sport/Timer'))
+const Journal = lazy(() => import('@/pages/sport/Journal'))
 const Calendar = lazy(() => import('@/pages/sport/Calendar'))
 const Progress = lazy(() => import('@/pages/sport/Progress'))
 
@@ -25,6 +26,7 @@ const Shared = lazy(() => import('@/pages/budget/Shared'))
 const Shopping = lazy(() => import('@/pages/budget/Shopping'))
 
 const Backup = lazy(() => import('@/pages/backup/Backup'))
+const Notifications = lazy(() => import('@/pages/notifications/Notifications'))
 
 function PageFallback() {
   return <div className="text-muted text-sm py-8 text-center">Chargement…</div>
@@ -56,6 +58,7 @@ function Gate() {
             <Route path="poids" element={<Weight />} />
             <Route path="programmes" element={<Programs />} />
             <Route path="minuteur" element={<Timer />} />
+            <Route path="journal" element={<Journal />} />
             <Route path="calendrier" element={<Calendar />} />
             <Route path="progression" element={<Progress />} />
           </Route>
@@ -73,6 +76,7 @@ function Gate() {
             <Route path="courses" element={<Shopping />} />
           </Route>
           <Route path="sauvegarde" element={<Backup />} />
+          <Route path="notifications" element={<Notifications />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -1,0 +1,7 @@
+*.db
+*.db-journal
+classement.csv
+*.csv
+__pycache__/
+*.pyc
+.env

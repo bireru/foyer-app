@@ -1,0 +1,49 @@
+# Configuration de l'outil de prospection (audit sécurité web TPE/PME Paris)
+
+# --- Réseau / politesse (règles légales non négociables) ---
+network:
+  user_agent: "FoyerSecurityAudit/1.0 (+prospection B2B; contact: audit@example.fr)"
+  rate_limit_per_domain_s: 1.0   # max 1 requête / seconde / domaine
+  timeout_s: 10.0
+  max_html_bytes: 400000         # on ne charge jamais plus que ça
+  respect_robots: true
+
+# --- Base de données ---
+db_path: "prospecting.db"
+
+# --- Découverte (Overpass / OpenStreetMap) ---
+discover:
+  overpass_url: "https://overpass-api.de/api/interpreter"
+  # Clé Google Places optionnelle (sinon ignoré). Mettre dans l'env GOOGLE_PLACES_API_KEY.
+  use_google_places: false
+
+# --- Scoring ---
+score:
+  # Poids de dépendance par catégorie (0-100) : à quel point l'activité dépend du site.
+  dependency_by_category:
+    ecommerce: 95
+    restaurant: 70
+    coiffeur: 65
+    clinique: 75
+    auto_ecole: 60
+    salle_de_sport: 55
+    traiteur: 60
+    garage: 45
+    default: 40
+
+# --- Agents LLM (n'agissent que sur le top N par priorité) ---
+llm:
+  enabled: true
+  top_n: 50
+  classifier_model: "claude-haiku-5-5"
+  auditor_model: "claude-sonnet-5-5"
+  outreach_model: "claude-haiku-5-5"
+  reviewer_model: "claude-opus-5-5"   # uniquement sur demande explicite (--review)
+  batch_size: 10
+  spend_cap_eur: 2.0                   # arrêt automatique au-delà
+  # Tarifs indicatifs (USD / million de tokens) pour estimer le coût.
+  pricing_usd_per_mtok:
+    claude-haiku-5-5:   { input: 1.0,  output: 5.0 }
+    claude-sonnet-5-5:  { input: 3.0,  output: 15.0 }
+    claude-opus-5-5:    { input: 15.0, output: 75.0 }
+  usd_to_eur: 0.92
